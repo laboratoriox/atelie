@@ -1,0 +1,14 @@
+{
+  "name": "atelier-desenho",
+  "version": "1.0.0",
+  "description": "Ateliê: app web de desenho com login por carteira cripto",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test lib/ethsig.test.js lib/api.test.js lib/worker.test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module"
+}

@@ -1,0 +1,19 @@
+# Opcional: para quem prefere publicar pela linha de comando (npx wrangler deploy).
+# O caminho pelo painel da Cloudflare (colando worker.bundle.js) não usa este arquivo.
+name = "atelie-api"
+main = "index.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "ATELIE_KV"
+id = "COLE_AQUI_O_ID_DO_KV"   # npx wrangler kv namespace create atelie
+
+[vars]
+ALLOWED_ORIGIN = "https://SEU-USUARIO.github.io"
+
+# SESSION_SECRET: npx wrangler secret put SESSION_SECRET
+
+# Opcional — camadas maiores (até 40 MB); exige cartão cadastrado na Cloudflare (o uso pequeno continua grátis):
+# [[r2_buckets]]
+# binding = "ATELIE_R2"
+# bucket_name = "atelie-camadas"
