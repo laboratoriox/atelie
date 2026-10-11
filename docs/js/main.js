@@ -65,6 +65,7 @@ function renderLogin() {
 
   app.replaceChildren(h('main.login', {},
     h('div.login-card', {},
+      h('a.back-site', { href: '../' }, h('span.ic', { html: icon.back }), 'Início'),
       h('h1.wordmark', {}, 'Ateliê'),
       h('div', { html: '<svg class="flourish" viewBox="0 0 320 40" aria-hidden="true"><path pathLength="1" d="M4 28 C 58 4, 108 42, 168 18 S 268 4, 316 22"/></svg>' }),
       h('p.login-lead', {}, 'Seu estúdio de desenho no navegador. Entre com sua carteira para continuar seus desenhos em qualquer aparelho.'),
@@ -77,6 +78,7 @@ async function renderGallery() {
   teardownEditor();
   const grid = h('div.cards', { 'aria-busy': 'true' });
   const header = h('header.gal-top', {},
+    h('a.back-site', { href: '../', title: 'Voltar ao início do site' }, h('span.ic', { html: icon.back }), 'Início'),
     h('h1.wordmark.sm', {}, 'Ateliê'),
     h('div.spacer'),
     h('button.chip-user', { type: 'button', title: 'Sair', onclick: logout }, h('span', {}, shortAddr(session.address)), h('span.ic', { html: icon.logout })));
