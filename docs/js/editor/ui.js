@@ -328,9 +328,9 @@ export function mountEditor(root, doc, saver, { onExit }) {
   // barra de ações da seleção
   const selBar = h('div.selbar', { hidden: true }, h('button.btn.sm', { onclick: () => engine.fillSelection() }, 'Preencher'), h('button.btn.sm', { onclick: () => engine.clearSelection() }, 'Apagar conteúdo'), h('button.btn.sm', { onclick: () => engine.deselect() }, 'Desmarcar'));
   const gestureHint = h('div.zoomhud', { hidden: true });
-  stage.append(quick, selBar, gestureHint);
+  stage.append(selBar, gestureHint);
 
-  editor.append(topbar, rail, stage, panel, dock);
+  editor.append(topbar, rail, stage, quick, panel, dock);
   root.replaceChildren(editor);
 
   // ---------- ligações ----------
