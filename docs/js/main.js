@@ -1,7 +1,6 @@
-// Roteamento, login por carteira e galeria.
+// Roteamento, login por e-mail + código e galeria.
 import { api, setUnauthorizedHandler } from './api.js';
-import { startDiscovery, listWallets, signIn, deepLinks, isMobile, WalletError } from './wallet.js';
-import { h, $, toast, modal, shortAddr, relTime } from './util.js';
+import { h, $, toast, modal, relTime } from './util.js';
 import { icon } from './icons.js';
 import { newDocFromOptions } from './editor/doc.js';
 import { loadDoc, Saver } from './editor/persist.js';
@@ -9,10 +8,9 @@ import { mountEditor } from './editor/ui.js';
 import { state } from './editor/state.js';
 
 const app = $('#app');
-let session = null;     // { address }
+let session = null;     // { email }
 let editorHandle = null;
 
-startDiscovery();
 setUnauthorizedHandler(() => { session = null; teardownEditor(); location.hash = '#/'; render(); });
 
 function teardownEditor() {
@@ -20,57 +18,74 @@ function teardownEditor() {
 }
 
 // ---------------- login ----------------
+const EMAIL_OK = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
 function renderLogin() {
   teardownEditor();
-  const status = h('p.login-status', { role: 'status' });
-  const walletsBox = h('div.wallets');
-  const help = h('div.login-help');
+  const status = h('p.login-status', { role: 'status', 'aria-live': 'polite' });
+  const form = h('div.login-form');
+  let email = '', timer = null;
+  const say = (msg, err) => { status.textContent = msg || ''; status.classList.toggle('err', !!err); };
+  const busy = (btn, on) => { if (btn) { btn.disabled = on; btn.toggleAttribute('aria-busy', on); } };
 
-  async function connect(provider, btn) {
-    status.textContent = ''; status.classList.remove('err');
-    btn?.setAttribute('aria-busy', 'true');
-    try {
-      status.textContent = 'Confirme a assinatura na sua carteira…';
-      const address = await signIn(provider);
-      session = { address };
-      render();
-    } catch (e) {
-      status.textContent = e instanceof WalletError || e?.status ? e.message : 'Não foi possível entrar. Tente de novo.';
-      status.classList.add('err');
-    } finally { btn?.removeAttribute('aria-busy'); }
+  function stepEmail(prefill) {
+    clearInterval(timer);
+    const input = h('input', { type: 'email', name: 'email', autocomplete: 'email', inputMode: 'email', autocapitalize: 'none', spellcheck: false, placeholder: 'seu@email.com', value: prefill || '', 'aria-label': 'Seu e-mail', required: true });
+    const btn = h('button.btn.primary.big', { type: 'submit' }, 'Enviar código');
+    const f = h('form', { novalidate: true, onsubmit: async (ev) => {
+      ev.preventDefault();
+      const v = input.value.trim().toLowerCase();
+      if (!EMAIL_OK.test(v)) { say('Digite um e-mail válido.', true); input.focus(); return; }
+      say(''); busy(btn, true);
+      try { await api.requestCode(v); email = v; stepCode(); }
+      catch (e) { say(e.message[0].toUpperCase() + e.message.slice(1) + (e.message.endsWith('.') ? '' : '.'), true); }
+      finally { busy(btn, false); }
+    } }, h('label.flabel', { for: 'em' }, 'Seu e-mail'), input, btn);
+    input.id = 'em';
+    form.replaceChildren(f);
+    setTimeout(() => input.focus(), 50);
   }
 
-  function drawWallets() {
-    const wallets = listWallets();
-    walletsBox.replaceChildren();
-    help.replaceChildren();
-    if (wallets.length) {
-      wallets.forEach((w) => {
-        const b = h('button.wallet', { type: 'button', onclick: () => connect(w.provider, b) },
-          w.icon ? h('img', { src: w.icon, alt: '', width: 28, height: 28 }) : h('span.wicon', { html: icon.wallet }),
-          h('span', {}, `Entrar com ${w.name}`));
-        walletsBox.append(b);
-      });
-    } else if (isMobile()) {
-      help.append(h('p', {}, 'Para entrar no celular, abra esta página dentro do navegador da sua carteira:'),
-        h('div.wallets', {}, ...deepLinks().map((l) => h('a.wallet', { href: l.href }, h('span.wicon', { html: icon.wallet }), h('span', {}, `Abrir no ${l.name}`)))),
-        h('p.hint', {}, 'Se você já está no navegador da carteira e nada apareceu, feche e abra o app de novo.'));
-    } else {
-      help.append(h('p', {}, 'Nenhuma carteira foi encontrada neste navegador.'),
-        h('p.hint', {}, 'Instale uma extensão de carteira, como a ', h('a', { href: 'https://metamask.io/download/', target: '_blank', rel: 'noopener noreferrer' }, 'MetaMask'), ', recarregue a página e volte aqui.'));
-    }
+  function stepCode() {
+    say('');
+    const input = h('input', { type: 'text', name: 'code', id: 'cd', inputMode: 'numeric', autocomplete: 'one-time-code', maxLength: 7, pattern: '[0-9]*', placeholder: '000000', 'aria-label': 'Código de 6 números', class: 'codebox' });
+    const btn = h('button.btn.primary.big', { type: 'submit' }, 'Entrar');
+    const again = h('button.linkbtn', { type: 'button', disabled: true }, '');
+    let left = 60;
+    const tick = () => {
+      if (left > 0) { again.disabled = true; again.textContent = `Enviar de novo em ${left}s`; left--; }
+      else { clearInterval(timer); again.disabled = false; again.textContent = 'Enviar de novo'; }
+    };
+    clearInterval(timer); tick(); timer = setInterval(tick, 1000);
+    again.onclick = async () => {
+      say(''); again.disabled = true;
+      try { await api.requestCode(email); left = 60; clearInterval(timer); tick(); timer = setInterval(tick, 1000); say('Enviamos um novo código.'); }
+      catch (e) { say(e.message[0].toUpperCase() + e.message.slice(1) + '.', true); again.disabled = false; }
+    };
+    const submit = async () => {
+      const code = input.value.replace(/\D/g, '');
+      if (code.length !== 6) { say('O código tem 6 números.', true); input.focus(); return; }
+      say(''); busy(btn, true);
+      try { const r = await api.verifyCode(email, code); clearInterval(timer); session = { email: r.email }; render(); }
+      catch (e) { say(e.message[0].toUpperCase() + e.message.slice(1) + (e.message.endsWith('.') ? '' : '.'), true); input.select(); busy(btn, false); }
+    };
+    input.addEventListener('input', () => { input.value = input.value.replace(/[^\d ]/g, ''); if (input.value.replace(/\D/g, '').length === 6) submit(); });
+    form.replaceChildren(h('form', { novalidate: true, onsubmit: (ev) => { ev.preventDefault(); submit(); } },
+      h('p.sent', {}, 'Enviamos um código de 6 números para ', h('b', {}, email), '. Pode levar um minutinho; veja também o spam.'),
+      h('label.flabel', { for: 'cd' }, 'Código'), input, btn,
+      h('div.row2', {}, again, h('button.linkbtn', { type: 'button', onclick: () => { say(''); stepEmail(email); } }, 'Trocar e-mail'))));
+    setTimeout(() => input.focus(), 50);
   }
-  drawWallets();
-  setTimeout(drawWallets, 500); // algumas carteiras anunciam depois que a página carrega
 
+  stepEmail();
   app.replaceChildren(h('main.login', {},
     h('div.login-card', {},
       h('a.back-site', { href: '../' }, h('span.ic', { html: icon.back }), 'Início'),
       h('h1.wordmark', {}, 'Ateliê'),
       h('div', { html: '<svg class="flourish" viewBox="0 0 320 40" aria-hidden="true"><path pathLength="1" d="M4 28 C 58 4, 108 42, 168 18 S 268 4, 316 22"/></svg>' }),
-      h('p.login-lead', {}, 'Seu estúdio de desenho no navegador. Entre com sua carteira para continuar seus desenhos em qualquer aparelho.'),
-      walletsBox, help, status,
-      h('p.fineprint', {}, 'A carteira serve só para provar que o endereço é seu. Você assina uma mensagem sem custo; não pedimos senha, frase secreta nem transações, e só guardamos seu endereço público e seus desenhos.'))));
+      h('p.login-lead', {}, 'Seu estúdio de desenho no navegador. Entre com seu e-mail para continuar seus desenhos em qualquer aparelho.'),
+      form, status,
+      h('p.fineprint', {}, 'Sem senha: enviamos um código de uso único para o seu e-mail. Guardamos seus desenhos sob um identificador criptografado do e-mail, não o e-mail em si, e só usamos o seu endereço para enviar o código.'))));
 }
 
 // ---------------- galeria ----------------
@@ -81,7 +96,7 @@ async function renderGallery() {
     h('a.back-site', { href: '../', title: 'Voltar ao início do site' }, h('span.ic', { html: icon.back }), 'Início'),
     h('h1.wordmark.sm', {}, 'Ateliê'),
     h('div.spacer'),
-    h('button.chip-user', { type: 'button', title: 'Sair', onclick: logout }, h('span', {}, shortAddr(session.address)), h('span.ic', { html: icon.logout })));
+    h('button.chip-user', { type: 'button', title: 'Sair', onclick: logout }, h('span', {}, session.email || 'Sair'), h('span.ic', { html: icon.logout })));
   app.replaceChildren(h('div.gallery', {}, header, h('main.gal-main', {},
     h('div.gal-head', {}, h('h2', {}, 'Seus desenhos'), h('button.btn.primary', { type: 'button', onclick: openNew }, h('span.ic', { html: icon.plus }), 'Novo desenho')),
     grid)));
