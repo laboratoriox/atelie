@@ -43,12 +43,9 @@ async function request(method, url, body, opts = {}) {
 }
 
 export const api = {
-  nonce: (address) => request('POST', '/api/auth/nonce', { address }, { noAuthRedirect: true }),
-  async verify(address, message, signature, ticket) {
-    const go = () => request('POST', '/api/auth/verify', { address, message, signature, ticket }, { noAuthRedirect: true });
-    let r;
-    try { r = await go(); }
-    catch (e) { if (e.status === 0 || e.status >= 500) r = await go(); else throw e; } // 1 nova tentativa (ex.: servidor "acordando")
+  requestCode: (email) => request('POST', '/api/auth/request', { email }, { noAuthRedirect: true }),
+  async verifyCode(email, code) {
+    const r = await request('POST', '/api/auth/verify', { email, code }, { noAuthRedirect: true });
     if (r.token) setToken(r.token);
     return r;
   },
