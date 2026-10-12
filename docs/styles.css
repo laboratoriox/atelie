@@ -54,7 +54,7 @@ button { cursor: pointer; }
 .spacer { flex: 1; }
 
 /* ---------- campos ---------- */
-input[type=text], input:not([type]), input[type=number], select, textarea { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-sunken); font-size: 16px; }
+input[type=text], input[type=email], input:not([type]), input[type=number], select, textarea { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-sunken); font-size: 16px; }
 textarea { resize: vertical; }
 input[type=color] { width: 44px; height: 36px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-sunken); }
 .field { display: grid; grid-template-columns: 96px 1fr 48px; align-items: center; gap: 8px; min-height: 34px; font-size: 13px; }
@@ -258,3 +258,17 @@ input[type=range].hue::-webkit-slider-thumb { margin-top: -4px; background: var(
 .back-site:hover { color: var(--text); background: rgba(255, 255, 255, .06); }
 .back-site .ic { display: inline-grid; }
 .back-site svg { width: 18px; height: 18px; }
+
+/* ---------- login por e-mail ---------- */
+.login-form form { display: grid; gap: 12px; }
+.login-form .flabel { font-size: 13px; color: var(--dim); }
+.login-form input { min-height: 52px; font-size: 18px; padding: 10px 14px; border-radius: 12px; }
+.login-form .codebox { text-align: center; letter-spacing: .5em; font-size: 28px; font-variant-numeric: tabular-nums; padding-left: calc(14px + .5em); }
+.login-form .btn.big { min-height: 52px; font-size: 16px; justify-content: center; }
+.login-form .btn[disabled] { opacity: .6; cursor: progress; }
+.login-form .sent { margin: 0; font-size: 14px; color: #d3d0c9; }
+.login-form .sent b { color: var(--text); overflow-wrap: anywhere; }
+.login-form .row2 { display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: space-between; }
+.linkbtn { background: none; border: 0; padding: 8px 0; min-height: 40px; color: var(--accent-hi); font-size: 14px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.linkbtn[disabled] { color: var(--dim); text-decoration: none; cursor: default; }
+.login-status.err { color: #ff8b7d; }
