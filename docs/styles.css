@@ -359,3 +359,26 @@ input[type=range].hue::-webkit-slider-thumb { margin-top: -4px; background: var(
 .cedit .docinfo { min-width: 0; }
 .cedit .save-status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cedit .docname { width: 100%; }
+
+/* ---------- editor de placa (PCB) ---------- */
+.pedit { grid-template-columns: 70px minmax(0, 1fr) 320px; grid-template-areas: "top top top" "rail stage panel"; }
+.ce-seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px; background: var(--bg-sunken); border: 1px solid var(--line); margin-right: 6px; }
+.ce-seg button { min-height: 30px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--dim); font-size: 13px; font-weight: 600; }
+.ce-seg button[aria-selected="true"] { background: var(--accent); color: #fff; }
+.only-m { display: none !important; }
+.ce-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ce-panel select { width: 100%; min-height: 38px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-sunken); font-size: 14px; }
+.ce-field input[type=number] { resize: none; }
+.btn[aria-pressed="true"] { border-color: var(--accent-hi); background: var(--accent-soft); }
+.ce-links { display: grid; gap: 4px; max-height: 240px; overflow-y: auto; }
+.ce-link { display: flex; justify-content: space-between; gap: 8px; align-items: center; min-height: 34px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: var(--bg-raised); font-size: 13px; text-align: left; }
+.ce-link[aria-pressed="true"] { border-color: var(--accent-hi); }
+.ce-link em { font-style: normal; font-size: 12px; }
+.ce-link em.ok { color: var(--ok); } .ce-link em.bad { color: #ff8f84; }
+.pe-layer { font-weight: 700; font-size: 15px; color: #fff; background: var(--lc, #d6504a); border-color: transparent; }
+@media (max-width: 820px) {
+  .pedit { grid-template-columns: minmax(0, 1fr); grid-template-areas: "top" "stage" "rail"; }
+  .only-m { display: grid !important; }
+  .pedit .ce-rail .tool { width: 54px; }
+  .ce-seg button { padding: 0 8px; font-size: 12px; }
+}

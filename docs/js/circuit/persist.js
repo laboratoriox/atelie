@@ -1,13 +1,14 @@
 // Carregar e salvar circuitos no servidor (um único JSON, com controle de versão).
 import { api, ApiError } from '../api.js';
 import { Schematic } from './schem.js';
+import { Board } from '../pcb/board.js';
 import { toCanvas } from './render.js';
 import { makeCanvas } from '../util.js';
 
 export async function loadCircuit(id) {
   const m = await api.get(id);
   if (m.kind !== 'circuit') throw Object.assign(new Error('Este item não é um circuito.'), { status: 404 });
-  return { id: m.id, name: m.name, rev: m.rev, sch: new Schematic(m.circuit) };
+  return { id: m.id, name: m.name, rev: m.rev, sch: new Schematic(m.circuit), board: m.circuit?.pcb ? new Board(m.circuit.pcb) : null };
 }
 
 export async function createCircuit(name) {
@@ -20,14 +21,19 @@ export class CircuitSaver extends EventTarget {
     super();
     this.s = state; this.status = 'saved'; this.dirty = false;
     this.running = false; this.pending = false; this.timer = 0; this.stopped = false;
-    this.off = state.sch.on((kind) => { if (kind !== 'load' && kind !== 'transient') this.touch(); });
+    this.offs = [state.sch.on((kind) => { if (kind !== 'load' && kind !== 'transient') this.touch(); })];
+    if (state.board) this.watch(state.board);
     this.onHide = () => { if (document.visibilityState === 'hidden') this.flush(); };
     this.onUnload = (e) => { if (this.dirty && this.status !== 'conflict') { e.preventDefault(); e.returnValue = ''; } };
     document.addEventListener('visibilitychange', this.onHide);
     window.addEventListener('beforeunload', this.onUnload);
   }
+  /** Passa a acompanhar também a placa (criada só quando a pessoa abre a aba Placa). */
+  watch(board) { this.offs.push(board.on((kind) => { if (kind !== 'load' && kind !== 'transient') this.touch(); })); }
+  get revSum() { return this.s.sch.rev + (this.s.board ? this.s.board.rev : 0); }
+  circuit() { const c = this.s.sch.toJSON(); if (this.s.board) c.pcb = this.s.board.toJSON(); return c; }
   destroy() {
-    this.stopped = true; clearTimeout(this.timer); this.off();
+    this.stopped = true; clearTimeout(this.timer); this.offs.forEach((f) => f());
     document.removeEventListener('visibilitychange', this.onHide);
     window.removeEventListener('beforeunload', this.onUnload);
   }
@@ -49,11 +55,11 @@ export class CircuitSaver extends EventTarget {
     if (this.running) { this.pending = true; return; }
     if (!this.dirty) { this.setStatus('saved'); return; }
     this.running = true; this.setStatus('saving');
-    const s = this.s, rev0 = s.sch.rev;
+    const s = this.s, rev0 = this.revSum;
     try {
-      const r = await api.save(s.id, { baseRev: s.rev, name: s.name, circuit: s.sch.toJSON(), thumb: this.thumbnail() });
+      const r = await api.save(s.id, { baseRev: s.rev, name: s.name, circuit: this.circuit(), thumb: this.thumbnail() });
       s.rev = r.rev;
-      if (s.sch.rev === rev0) { this.dirty = false; this.setStatus('saved'); } else { this.pending = true; this.setStatus('dirty'); }
+      if (this.revSum === rev0) { this.dirty = false; this.setStatus('saved'); } else { this.pending = true; this.setStatus('dirty'); }
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) this.setStatus('conflict', e.message);
       else if (e instanceof ApiError && e.status === 0) { this.setStatus('offline', e.message); this.schedule(5000); }
@@ -68,7 +74,7 @@ export class CircuitSaver extends EventTarget {
   /** Em caso de conflito: guarda o que está na tela como um circuito novo. */
   async saveAsCopy() {
     const s = this.s;
-    const m = await api.create({ kind: 'circuit', name: s.name + ' (cópia)', circuit: s.sch.toJSON(), thumb: this.thumbnail() });
+    const m = await api.create({ kind: 'circuit', name: s.name + ' (cópia)', circuit: this.circuit(), thumb: this.thumbnail() });
     return m.id;
   }
 }

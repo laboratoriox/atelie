@@ -8,6 +8,8 @@ import { mountEditor } from './editor/ui.js';
 import { state } from './editor/state.js';
 import { loadCircuit, createCircuit, CircuitSaver } from './circuit/persist.js';
 import { mountCircuitEditor } from './circuit/editor.js';
+import { mountPcbEditor } from './pcb/editor.js';
+import { Board } from './pcb/board.js';
 
 const app = $('#app');
 let session = null;     // { email }
@@ -233,7 +235,7 @@ async function renderEditor(id) {
   if (id === null) { saver.flush(); } // cria o desenho no servidor logo de início
 }
 
-async function renderCircuit(id) {
+async function renderCircuit(id, startView = 'sch') {
   teardownEditor();
   app.replaceChildren(h('div.loading', { role: 'status' }, 'Abrindo circuito…'));
   let st;
@@ -247,9 +249,21 @@ async function renderCircuit(id) {
     if (saver.status === 'saving') await new Promise((r) => saver.addEventListener('status', () => saver.status !== 'saving' && r(), { once: true }));
     location.hash = '#/';
   };
-  const handle = mountCircuitEditor(root, st, saver, { onExit: exit });
+  let handle = null;
+  const show = (view) => {
+    if (handle) handle.destroy();
+    if (view === 'pcb') {
+      if (!st.board) { st.board = new Board(); saver.watch(st.board); }
+      handle = mountPcbEditor(root, st, saver, { onExit: exit, onSwitch: show });
+      history.replaceState(null, '', '#/c/' + id + '/placa');
+    } else {
+      handle = mountCircuitEditor(root, st, saver, { onExit: exit, onSwitch: show });
+      history.replaceState(null, '', '#/c/' + id);
+    }
+    window.__circuit = handle;
+  };
+  show(startView);
   editorHandle = { destroy() { saver.flush(); handle.destroy(); saver.destroy(); } };
-  window.__circuit = handle; // usado nos testes automáticos
 }
 
 async function logout() {
@@ -266,7 +280,7 @@ async function render() {
   const hash = location.hash;
   let m;
   if ((m = /^#\/d\/([a-f0-9]{16})$/.exec(hash))) return renderEditor(m[1]);
-  if ((m = /^#\/c\/([a-f0-9]{16})$/.exec(hash))) return renderCircuit(m[1]);
+  if ((m = /^#\/c\/([a-f0-9]{16})(\/placa)?$/.exec(hash))) return renderCircuit(m[1], m[2] ? 'pcb' : 'sch');
   if (hash === '#/novo') return renderEditor(null);
   return renderGallery();
 }

@@ -31,7 +31,7 @@ function preview(item) {
   return c;
 }
 
-export function mountCircuitEditor(root, state, saver, { onExit }) {
+export function mountCircuitEditor(root, state, saver, { onExit, onSwitch }) {
   const sch = state.sch;
   let tool = 'sel', sheet = null;
   let sel = { parts: [], wires: [], texts: [] };
@@ -59,7 +59,9 @@ export function mountCircuitEditor(root, state, saver, { onExit }) {
   const nameIn = h('input.docname', { value: state.name, maxLength: 80, 'aria-label': 'Nome do circuito', onchange: () => { const v = nameIn.value.trim() || 'Circuito sem título'; nameIn.value = v; saver.rename(v); } });
   const statusEl = h('div.save-status', { role: 'status', 'aria-live': 'polite' });
   const top = h('header.topbar', {}, iconBtn(icon.back, 'Voltar à galeria', () => onExit()),
-    h('div.docinfo', {}, nameIn, statusEl), h('div.spacer'), undoB, redoB, iconBtn(icon.download, 'Exportar', () => openExport()));
+    h('div.docinfo', {}, nameIn, statusEl), h('div.spacer'),
+    ...(onSwitch ? [h('div.ce-seg', { role: 'tablist' }, h('button', { type: 'button', role: 'tab', 'aria-selected': 'true' }, 'Esquema'), h('button', { type: 'button', role: 'tab', 'aria-selected': 'false', onclick: () => onSwitch('pcb') }, 'Placa'))] : []),
+    undoB, redoB, iconBtn(icon.download, 'Exportar', () => openExport()));
 
   const toolDefs = [['sel', 'Selecionar (V)', icon.cursor, 'Selecionar'], ['wire', 'Fio (W)', icon.wire, 'Fio'], ['parts', 'Peças (P)', icon.chip, 'Peças'], ['text', 'Texto (T)', icon.text, 'Texto'], ['pan', 'Mover a tela (H)', icon.hand, 'Mão']];
   const toolBtns = {};

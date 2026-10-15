@@ -50,5 +50,8 @@ export const icon = {
   zoomIn: p('<path d="M12 5v14M5 12h14"/>'),
   zoomOut: p('<path d="M5 12h14"/>'),
   edit: p('<path d="M5 19l1-4L16.5 4.5a2 2 0 0 1 3 3L9 18z"/>'),
+  via: p('<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.6"/>'),
+  board: p('<path d="M5 5h10l4 4v10H5z"/><circle cx="9" cy="9" r="1"/><circle cx="15" cy="15" r="1"/>'),
+  layers2: p('<path d="M12 4l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4M4 16l8 4 8-4"/>'),
   logout: p('<path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M15 8l4 4-4 4M19 12H9"/>'),
 };
