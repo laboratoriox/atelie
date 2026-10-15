@@ -2,7 +2,7 @@
 import { api, setUnauthorizedHandler } from './api.js';
 import { h, $, toast, modal, relTime } from './util.js';
 import { icon } from './icons.js';
-import { newDocFromOptions } from './editor/doc.js';
+import { newDocFromOptions, newDocFromImage } from './editor/doc.js';
 import { loadDoc, Saver } from './editor/persist.js';
 import { mountEditor } from './editor/ui.js';
 import { state } from './editor/state.js';
@@ -154,6 +154,17 @@ function openNew() {
   bgBtns.color = h('button.btn.sm', { type: 'button', onclick: () => { bg = colorIn.value; setBg('color'); } }, 'Cor');
   setBg('white');
   wIn.addEventListener('input', check); hIn.addEventListener('input', check);
+  const photoIn = h('input', { type: 'file', accept: 'image/*', hidden: true });
+  photoIn.addEventListener('change', async () => {
+    const f = photoIn.files[0]; photoIn.value = ''; if (!f) return;
+    if (!/^image\//.test(f.type)) { toast('Escolha um arquivo de imagem (JPG, PNG ou WebP).', 'err'); return; }
+    const url = URL.createObjectURL(f);
+    try {
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('x')); i.src = url; });
+      pendingDoc = newDocFromImage(img, (f.name || 'Foto').replace(/\.[^.]+$/, '').slice(0, 60) || 'Foto');
+      m.close(); location.hash = '#/novo';
+    } catch { toast('Não consegui abrir essa imagem.', 'err'); } finally { URL.revokeObjectURL(url); }
+  });
   const create = h('button.btn.primary', { type: 'button', onclick: () => {
     if (!check()) return;
     const doc = newDocFromOptions({ name: name.value.trim() || 'Sem título', width: w, height: hgt, background: bgMode === 'transparent' ? null : bg });
@@ -163,7 +174,8 @@ function openNew() {
     h('label.field.col', {}, h('span.flabel', {}, 'Nome'), name),
     h('div.flabel', {}, 'Tamanho da tela'), presets,
     h('div.dims', {}, h('label.field.col', {}, h('span.flabel', {}, 'Largura (px)'), wIn), h('span.times', {}, '×'), h('label.field.col', {}, h('span.flabel', {}, 'Altura (px)'), hIn)), msg,
-    h('div.flabel', {}, 'Fundo'), h('div.bgrow', {}, bgBtns.white, bgBtns.transparent, bgBtns.color, colorIn));
+    h('div.flabel', {}, 'Cor do papel'), h('div.bgrow', {}, bgBtns.white, bgBtns.transparent, bgBtns.color, colorIn),
+    h('div.flabel', {}, 'Ou comece de uma foto'), h('div.bgrow', {}, h('button.btn.sm', { type: 'button', onclick: () => photoIn.click() }, 'Escolher foto…'), photoIn));
   const m = modal('Novo desenho', body, [h('button.btn', { onclick: () => m.close() }, 'Cancelar'), create]);
   check();
 }

@@ -20,7 +20,7 @@ export async function loadDoc(id) {
     const url = URL.createObjectURL(await api.layerBlob(id, L.file));
     try { L.ctx.drawImage(await loadImage(url), 0, 0); } finally { URL.revokeObjectURL(url); }
   }));
-  const doc = new Doc({ id: meta.id, name: meta.name, width: meta.width, height: meta.height, layers, rev: meta.rev });
+  const doc = new Doc({ id: meta.id, name: meta.name, width: meta.width, height: meta.height, layers, rev: meta.rev, paper: meta.bg, light: meta.light });
   doc.activeId = layers[layers.length - 1].id;
   doc.view = meta.view || {};
   return doc;
@@ -52,14 +52,14 @@ export class Saver extends EventTarget {
   payload() {
     const doc = this.doc;
     return {
-      name: doc.name, width: doc.width, height: doc.height, view: { grid: false },
+      name: doc.name, width: doc.width, height: doc.height, view: { grid: false }, bg: doc.paper, light: { ...doc.light },
       layers: doc.layers.map((l) => ({ ...l.snapshotProps(), file: l.file })),
     };
   }
 
   thumbnail() {
     const doc = this.doc, k = 384 / Math.max(doc.width, doc.height);
-    const flat = doc.flatten({ background: '#ffffff', scale: Math.min(1, k) });
+    const flat = doc.flatten({ background: doc.paper || '#ffffff', scale: Math.min(1, k) });
     return flat.toDataURL('image/jpeg', 0.78);
   }
 

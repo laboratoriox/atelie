@@ -124,6 +124,7 @@ export class Engine extends EventTarget {
     ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 28 * dpr; ctx.shadowOffsetY = 8 * dpr;
     ctx.fillStyle = '#e6e6e6'; ctx.fill(); ctx.restore();
     ctx.save(); path(); ctx.clip(); ctx.fillStyle = this.checker(); ctx.fillRect(0, 0, W, H); ctx.restore();
+    if (doc.paper) { ctx.save(); path(); ctx.clip(); ctx.fillStyle = doc.paper; ctx.fillRect(0, 0, W, H); ctx.restore(); }
 
     // composição das camadas na tela
     cctx.setTransform(1, 0, 0, 1, 0, 0); cctx.clearRect(0, 0, W, H);
@@ -131,8 +132,9 @@ export class Engine extends EventTarget {
     const m = [c, s, -s, c, this.tx * dpr, this.ty * dpr];
     cctx.setTransform(...m);
     cctx.imageSmoothingEnabled = this.scale < 3; cctx.imageSmoothingQuality = 'high';
-    for (const l of doc.layers) {
-      if (!l.visible) continue;
+    const vi = doc.veilIndex; // mesa de luz: o "papel" translúcido fica por cima da foto de referência
+    doc.layers.forEach((l, i) => {
+      if (!l.visible) return;
       cctx.globalCompositeOperation = l.blend;
       cctx.globalAlpha = l.opacity;
       cctx.drawImage(l.canvas, 0, 0);
@@ -141,7 +143,8 @@ export class Engine extends EventTarget {
         cctx.globalAlpha = l.opacity * (pv.alpha ?? 1);
         cctx.drawImage(pv.canvas, pv.x || 0, pv.y || 0);
       }
-    }
+      if (i === vi) { cctx.globalCompositeOperation = 'source-over'; cctx.globalAlpha = doc.light.veil; cctx.fillStyle = doc.paper || '#ffffff'; cctx.fillRect(0, 0, doc.width, doc.height); }
+    });
     cctx.globalAlpha = 1; cctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(this.comp, 0, 0);
 

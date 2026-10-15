@@ -5,6 +5,7 @@ import { state, TOOLS, PRESETS, ERASER_PRESET, hsvToRgb, rgbToHsv, rgbToHex, hex
 import { BLEND_MODES, MAX_LAYERS } from './doc.js';
 import { Engine, FONTS } from './engine.js';
 import { BrushStroke } from './brush.js';
+import { importPhoto, openAdjust } from './photo.js';
 
 const PALETTE = ['#1b1b1f', '#4a4a52', '#8b8b94', '#c9c9d0', '#ffffff', '#4b2e22', '#8d5a3b', '#c98f6b', '#f0b79a', '#7a2e1d', '#b5532f',
   '#e08a3c', '#f2b705', '#c9c34a', '#5f7d3a', '#2f5d50', '#2a8c8c', '#2f4bd8', '#25306e', '#6b3fa0', '#b03a6f', '#d6403a'];
@@ -205,6 +206,8 @@ export function mountEditor(root, doc, saver, { onExit }) {
       const size = range({ min: 8, max: 400, value: state.text.size, label: 'Tamanho do texto', onInput: (v) => { state.text.size = v; rs.readout.textContent = v + ' px'; } });
       var rs = field('Tamanho', size, state.text.size + ' px');
       kids.push(h('div.field', {}, h('span.flabel', {}, 'Fonte'), font), rs, toggle('Negrito', state.text.bold, (v) => { state.text.bold = v; }), toggle('Itálico', state.text.italic, (v) => { state.text.italic = v; }), h('p.hint', {}, 'Toque ou clique onde o texto deve começar.'));
+    } else if (t === 'borracha') {
+      kids.push(h('p.hint', {}, 'A borracha apaga o desenho da camada e deixa aparecer o papel por baixo. A cor do papel muda na aba Camadas.'));
     } else if (t === 'selecao') {
       kids.push(h('p.hint', {}, 'Arraste para selecionar. Pincel, balde e borracha passam a agir só dentro da seleção.'));
     } else if (t === 'mover') {
@@ -237,7 +240,8 @@ export function mountEditor(root, doc, saver, { onExit }) {
   const lOpac = range({ min: 0, max: 100, value: 100, label: 'Opacidade da camada' });
   const lOpacField = field('Opacidade', lOpac, '100%');
   const blendSel = h('select', { 'aria-label': 'Modo de mistura' }, ...BLEND_MODES.map(([v, n]) => h('option', { value: v }, n)));
-  const layerMeta = h('div.layermeta', {}, lOpacField, h('label.field', {}, h('span.flabel', {}, 'Mistura'), blendSel));
+  const refChk = toggle('Esta camada é a foto da mesa de luz', false, (v) => { if (doc.active) doc.setReference(doc.active, v); });
+  const layerMeta = h('div.layermeta', {}, lOpacField, h('label.field', {}, h('span.flabel', {}, 'Mistura'), blendSel), refChk);
   const thumbs = new Map();
   let opacBefore = null;
   lOpac.addEventListener('pointerdown', () => { const l = doc.active; if (l) opacBefore = l.opacity; });
@@ -274,7 +278,7 @@ export function mountEditor(root, doc, saver, { onExit }) {
       const th = h('canvas.lthumb', { width: 44, height: 34 }); thumbs.set(l.id, th);
       const li = h('li.layer', { role: 'option', 'aria-selected': String(l.id === doc.activeId), dataset: { id: l.id } },
         h('button.ibtn.sm', { type: 'button', title: l.visible ? 'Ocultar camada' : 'Mostrar camada', 'aria-label': l.visible ? 'Ocultar camada' : 'Mostrar camada', 'aria-pressed': String(!l.visible), onclick: (e) => { e.stopPropagation(); doc.setLayerProps(l, { visible: !l.visible }); }, html: l.visible ? icon.eye : icon.eyeOff }),
-        h('div.lbody', { onclick: () => { if (doc.activeId === l.id) renameLayer(l, li); else doc.setActive(l.id); } }, th, h('span.lname', { title: 'Toque de novo para renomear' }, l.name)),
+        h('div.lbody', { onclick: () => { if (doc.activeId === l.id) renameLayer(l, li); else doc.setActive(l.id); } }, th, h('span.lname', { title: 'Toque de novo para renomear' }, l.name), l.ref ? h('span.badge', { title: 'Foto da mesa de luz' }, 'foto') : null),
         h('button.ibtn.sm', { type: 'button', title: l.locked ? 'Desbloquear camada' : 'Bloquear camada', 'aria-label': l.locked ? 'Desbloquear camada' : 'Bloquear camada', 'aria-pressed': String(l.locked), onclick: (e) => { e.stopPropagation(); doc.setLayerProps(l, { locked: !l.locked }); }, html: l.locked ? icon.lock : icon.unlock }));
       if (!l.visible) li.classList.add('hidden');
       if (l.id === doc.activeId) li.classList.add('active');
@@ -284,6 +288,7 @@ export function mountEditor(root, doc, saver, { onExit }) {
     doc.layers.forEach(drawThumb);
     const a = doc.active;
     if (a) { lOpac.set(Math.round(a.opacity * 100)); lOpacField.readout.textContent = Math.round(a.opacity * 100) + '%'; blendSel.value = a.blend; }
+    refChk.input.checked = !!a?.ref; syncSheet();
     const i = doc.activeIndex;
     btnUp.disabled = i >= doc.layers.length - 1; btnDown.disabled = i <= 0; btnMerge.disabled = i <= 0;
     btnDel.disabled = doc.layers.length <= 1; btnAdd.disabled = btnDup.disabled = doc.layers.length >= MAX_LAYERS;
@@ -300,8 +305,43 @@ export function mountEditor(root, doc, saver, { onExit }) {
     layerList, layerMeta);
   const refreshThumbs = debounce(() => doc.layers.forEach((l) => { if (l._thumbVer !== l.ver) { l._thumbVer = l.ver; drawThumb(l); } }), 250);
 
+  // ---------- seção: papel, foto e mesa de luz ----------
+  const paperInput = h('input', { type: 'color', value: doc.paper || '#ffffff', 'aria-label': 'Cor do papel' });
+  const paperText = h('span.readout', {}, '');
+  let paperBefore;
+  paperInput.addEventListener('input', () => {
+    if (paperBefore === undefined) paperBefore = doc.paper;
+    doc.paper = paperInput.value; doc.metaDirty = true; paperText.textContent = doc.paper; doc.emit('render'); doc.emit('modified', { structure: true });
+  });
+  paperInput.addEventListener('change', () => {
+    const b = paperBefore, a = doc.paper; paperBefore = undefined;
+    if (b !== a) doc.pushHistory({ cost: 0, undo: () => { doc.paper = b; doc.changed({ structure: true }); }, redo: () => { doc.paper = a; doc.changed({ structure: true }); } });
+  });
+  const fundoBtn = h('button.btn.sm', { type: 'button', onclick: () => { const r = doc.fundoToPaper(); toast(r === 'ok' ? 'A camada Fundo virou o papel. Agora a borracha mostra essa cor.' : 'A camada Fundo tem desenho ou mais de uma cor, então não dá para converter.'); } }, 'Transformar a camada Fundo em papel');
+  const fileIn = h('input', { type: 'file', accept: 'image/*', hidden: true });
+  let pendingRef = false;
+  fileIn.addEventListener('change', () => { const f = fileIn.files[0]; fileIn.value = ''; if (f) importPhoto(doc, f, { asRef: pendingRef }); });
+  const pickPhoto = (ref) => { pendingRef = ref; fileIn.click(); };
+  const lightChk = toggle('Mesa de luz ligada', false, (v) => doc.setSheet({ light: { on: v } }));
+  const veilR = range({ min: 0, max: 95, value: 60, label: 'Papel sobre a foto', onInput: (v) => { doc.light.veil = v / 100; veilField.readout.textContent = v + '%'; doc.metaDirty = true; doc.emit('render'); doc.emit('modified', { structure: true }); } });
+  const veilField = field('Papel sobre a foto', veilR, '60%');
+  const expChk = toggle('Incluir a foto ao exportar', false, (v) => { doc.light.exportRef = v; doc.metaDirty = true; doc.emit('modified', { structure: true }); });
+  const lightBox = h('div.lightbox', {}, lightChk, veilField, expChk, h('p.hint', {}, 'A foto fica embaixo e o papel fica por cima, mais ou menos transparente. Desenhe nas camadas de cima, como numa mesa de luz.'));
+  function syncSheet() {
+    paperInput.value = doc.paper || '#ffffff'; paperText.textContent = doc.paper || 'transparente';
+    fundoBtn.hidden = !doc.layers.some((l) => /^fundo$/i.test(l.name));
+    lightBox.hidden = !doc.hasRef;
+    lightChk.input.checked = doc.light.on; veilR.set(Math.round(doc.light.veil * 100)); veilField.readout.textContent = Math.round(doc.light.veil * 100) + '%'; expChk.input.checked = doc.light.exportRef;
+  }
+  const secPaper = h('section.sec.sec-layers.sec-paper', { 'aria-label': 'Papel e foto' },
+    h('h3', {}, 'Papel e foto'),
+    h('div.field', {}, h('span.flabel', {}, 'Cor do papel'), h('div.bgrow', {}, paperInput, h('button.btn.sm', { type: 'button', onclick: () => doc.setSheet({ paper: '#ffffff' }) }, 'Branco'), h('button.btn.sm', { type: 'button', onclick: () => doc.setSheet({ paper: null }) }, 'Transparente')), paperText),
+    fundoBtn,
+    h('div.bgrow', {}, h('button.btn.sm', { type: 'button', onclick: () => pickPhoto(false) }, 'Inserir foto…'), h('button.btn.sm', { type: 'button', onclick: () => pickPhoto(true) }, 'Foto para decalcar…'), h('button.btn.sm', { type: 'button', onclick: () => openAdjust(doc) }, 'Ajustar imagem…')),
+    fileIn, lightBox);
+
   // ---------- painel e folhas (celular) ----------
-  const panel = h('aside.panel', {}, h('div.grab', { onclick: () => toggleSheet('') }, h('span')), secColor, secBrush, secLayers);
+  const panel = h('aside.panel', {}, h('div.grab', { onclick: () => toggleSheet('') }, h('span')), secColor, secBrush, secPaper, secLayers);
   const dock = h('nav.dock', { 'aria-label': 'Painéis' },
     h('button', { type: 'button', dataset: { sheet: 'color' }, onclick: () => toggleSheet('color') }, h('span.dot'), 'Cor'),
     h('button', { type: 'button', dataset: { sheet: 'tool' }, onclick: () => toggleSheet('tool'), html: icon.sliders + '<span>Pincel</span>' }),
@@ -368,13 +408,15 @@ export function mountEditor(root, doc, saver, { onExit }) {
 
   // ---------- exportar ----------
   function openExport() {
-    let fmt = 'png', scale = 1;
+    let fmt = 'png', scale = 1, withPaper = !!doc.paper, withRef = doc.light.exportRef;
     const info = h('p.hint');
     const upd = () => { info.textContent = `${Math.round(doc.width * scale)} × ${Math.round(doc.height * scale)} px`; };
     upd();
     const body = h('div.exportbody', {},
-      h('div.field', {}, h('span.flabel', {}, 'Formato'), segmented([['png', 'PNG (com transparência)'], ['jpeg', 'JPG (fundo branco)']], fmt, (v) => { fmt = v; })),
-      h('div.field', {}, h('span.flabel', {}, 'Tamanho'), segmented([[0.5, '½×'], [1, '1×'], [2, '2×']], scale, (v) => { scale = v; upd(); })), info);
+      h('div.field', {}, h('span.flabel', {}, 'Formato'), segmented([['png', 'PNG (com transparência)'], ['jpeg', 'JPG (fundo sólido)']], fmt, (v) => { fmt = v; })),
+      h('div.field', {}, h('span.flabel', {}, 'Tamanho'), segmented([[0.5, '½×'], [1, '1×'], [2, '2×']], scale, (v) => { scale = v; upd(); })),
+      doc.paper ? toggle('Incluir a cor do papel (no PNG)', withPaper, (v) => { withPaper = v; }) : null,
+      doc.hasRef ? toggle('Incluir a foto da mesa de luz', withRef, (v) => { withRef = v; }) : null, info);
     const m = modal('Exportar imagem', body, [
       h('button.btn', { onclick: () => m.close() }, 'Cancelar'),
       navigator.canShare ? h('button.btn', { onclick: async () => { const f = await makeFile(); if (f && navigator.canShare({ files: [f] })) { try { await navigator.share({ files: [f] }); m.close(); } catch {} } else toast('Compartilhar não está disponível aqui. Use Baixar.'); } }, 'Compartilhar') : null,
@@ -383,7 +425,7 @@ export function mountEditor(root, doc, saver, { onExit }) {
     async function makeFile() {
       try {
         const max = 8192, k = Math.min(scale, max / Math.max(doc.width, doc.height));
-        const c = doc.flatten({ background: fmt === 'jpeg' ? '#ffffff' : null, scale: k });
+        const c = doc.flatten({ background: fmt === 'jpeg' ? (doc.paper || '#ffffff') : (withPaper ? doc.paper : null), scale: k, includeRef: withRef });
         const blob = await canvasToBlob(c, fmt === 'jpeg' ? 'image/jpeg' : 'image/png', 0.92);
         const safe = (doc.name || 'desenho').replace(/[^\p{L}\p{N}_ -]+/gu, '').trim().replace(/\s+/g, '-') || 'desenho';
         return new File([blob], `${safe}.${fmt === 'jpeg' ? 'jpg' : 'png'}`, { type: blob.type });
