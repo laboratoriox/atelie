@@ -6,6 +6,8 @@ import { newDocFromOptions, newDocFromImage } from './editor/doc.js';
 import { loadDoc, Saver } from './editor/persist.js';
 import { mountEditor } from './editor/ui.js';
 import { state } from './editor/state.js';
+import { loadCircuit, createCircuit, CircuitSaver } from './circuit/persist.js';
+import { mountCircuitEditor } from './circuit/editor.js';
 
 const app = $('#app');
 let session = null;     // { email }
@@ -89,6 +91,9 @@ function renderLogin() {
 }
 
 // ---------------- galeria ----------------
+let galTab = 'desenhos';
+try { if (sessionStorage.getItem('atelie_tab') === 'circuitos') galTab = 'circuitos'; } catch {}
+
 async function renderGallery() {
   teardownEditor();
   const grid = h('div.cards', { 'aria-busy': 'true' });
@@ -97,15 +102,21 @@ async function renderGallery() {
     h('h1.wordmark.sm', {}, 'Ateliê'),
     h('div.spacer'),
     h('button.chip-user', { type: 'button', title: 'Sair', onclick: logout }, h('span', {}, session.email || 'Sair'), h('span.ic', { html: icon.logout })));
+  const circ = () => galTab === 'circuitos';
+  const tabBtn = (id, label) => h('button', { type: 'button', role: 'tab', 'aria-selected': String(galTab === id), onclick: () => { galTab = id; try { sessionStorage.setItem('atelie_tab', id); } catch {} renderGallery(); } }, label);
+  const tabs = h('div.gal-tabs', { role: 'tablist', 'aria-label': 'Tipo de projeto' }, tabBtn('desenhos', 'Desenhos'), tabBtn('circuitos', 'Circuitos'));
+  const newBtn = () => h('button.btn.primary', { type: 'button', onclick: circ() ? openNewCircuit : openNew }, h('span.ic', { html: icon.plus }), circ() ? 'Novo circuito' : 'Novo desenho');
   app.replaceChildren(h('div.gallery', {}, header, h('main.gal-main', {},
-    h('div.gal-head', {}, h('h2', {}, 'Seus desenhos'), h('button.btn.primary', { type: 'button', onclick: openNew }, h('span.ic', { html: icon.plus }), 'Novo desenho')),
+    tabs, h('div.gal-head', {}, h('h2', {}, circ() ? 'Seus circuitos' : 'Seus desenhos'), newBtn()),
     grid)));
 
   let list = [];
   try { list = (await api.list()).drawings; } catch (e) { toast(e.message, 'err'); }
   grid.removeAttribute('aria-busy');
+  list = list.filter((d) => (d.kind === 'circuit') === circ());
   if (!list.length) {
-    grid.replaceChildren(h('div.empty', {}, h('p', {}, 'Você ainda não tem desenhos.'), h('button.btn.primary', { type: 'button', onclick: openNew }, 'Criar o primeiro desenho')));
+    grid.replaceChildren(h('div.empty', {}, h('p', {}, circ() ? 'Você ainda não tem circuitos. Aqui você desenha esquemas elétricos com peças, fios e nomes.' : 'Você ainda não tem desenhos.'),
+      h('button.btn.primary', { type: 'button', onclick: circ() ? openNewCircuit : openNew }, circ() ? 'Criar o primeiro circuito' : 'Criar o primeiro desenho')));
     return;
   }
   const lazyThumb = (d) => {
@@ -114,17 +125,32 @@ async function renderGallery() {
     api.thumb(d.id).then((r) => { holder.replaceWith(r.thumb ? h('img', { src: r.thumb, alt: '' }) : h('span.noimg', {}, 'Sem miniatura')); }).catch(() => { holder.textContent = 'Sem miniatura'; });
     return holder;
   };
+  const href = (d) => (d.kind === 'circuit' ? `#/c/${d.id}` : `#/d/${d.id}`);
   grid.replaceChildren(...list.map((d) => h('article.card', {},
-    h('a.thumb', { href: `#/d/${d.id}`, 'aria-label': `Abrir ${d.name}` }, lazyThumb(d)),
-    h('div.cardinfo', {}, h('a.cname', { href: `#/d/${d.id}` }, d.name), h('span.cmeta', {}, `${d.width}×${d.height} · ${relTime(d.updatedAt)}`)),
-    h('button.ibtn.del', { type: 'button', title: 'Excluir desenho', 'aria-label': `Excluir ${d.name}`, onclick: () => confirmDelete(d), html: icon.trash }))));
+    h('a.thumb', { href: href(d), 'aria-label': `Abrir ${d.name}` }, lazyThumb(d)),
+    h('div.cardinfo', {}, h('a.cname', { href: href(d) }, d.name), h('span.cmeta', {}, d.kind === 'circuit' ? `Esquema · ${relTime(d.updatedAt)}` : `${d.width}×${d.height} · ${relTime(d.updatedAt)}`)),
+    h('button.ibtn.del', { type: 'button', title: 'Excluir', 'aria-label': `Excluir ${d.name}`, onclick: () => confirmDelete(d), html: icon.trash }))));
 }
 
 function confirmDelete(d) {
-  const m = modal('Excluir este desenho?', h('p', {}, `“${d.name}” será apagado de todos os seus aparelhos. Não dá para desfazer.`), [
+  const what = d.kind === 'circuit' ? 'circuito' : 'desenho';
+  const m = modal(`Excluir este ${what}?`, h('p', {}, `“${d.name}” será apagado de todos os seus aparelhos. Não dá para desfazer.`), [
     h('button.btn', { onclick: () => m.close() }, 'Cancelar'),
-    h('button.btn.danger', { onclick: async () => { m.close(); try { await api.remove(d.id); toast('Desenho excluído.'); renderGallery(); } catch (e) { toast(e.message, 'err'); } } }, 'Excluir'),
+    h('button.btn.danger', { onclick: async () => { m.close(); try { await api.remove(d.id); toast(`${what[0].toUpperCase()}${what.slice(1)} excluído.`); renderGallery(); } catch (e) { toast(e.message, 'err'); } } }, 'Excluir'),
   ]);
+}
+
+function openNewCircuit() {
+  const name = h('input', { value: 'Circuito sem título', maxLength: 80, 'aria-label': 'Nome do circuito' });
+  const go = async () => {
+    create.disabled = true;
+    try { const id = await createCircuit(name.value.trim() || 'Circuito sem título'); m.close(); location.hash = '#/c/' + id; }
+    catch (e) { create.disabled = false; toast(e.message, 'err'); }
+  };
+  name.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  const create = h('button.btn.primary', { type: 'button', onclick: go }, 'Criar');
+  const m = modal('Novo circuito', h('div.newform', {}, h('label.field.col', {}, h('span.flabel', {}, 'Nome'), name),
+    h('p.hint', {}, 'Um espaço para desenhar esquemas elétricos: peças, fios e nomes, separado dos seus desenhos.')), [h('button.btn', { onclick: () => m.close() }, 'Cancelar'), create]);
 }
 
 const PRESETS = [
@@ -207,6 +233,25 @@ async function renderEditor(id) {
   if (id === null) { saver.flush(); } // cria o desenho no servidor logo de início
 }
 
+async function renderCircuit(id) {
+  teardownEditor();
+  app.replaceChildren(h('div.loading', { role: 'status' }, 'Abrindo circuito…'));
+  let st;
+  try { st = await loadCircuit(id); }
+  catch (e) { toast(e.status === 404 ? 'Circuito não encontrado.' : e.message, 'err'); location.hash = '#/'; return; }
+  const saver = new CircuitSaver(st);
+  const root = h('div.editor-root');
+  app.replaceChildren(root);
+  const exit = async () => {
+    await saver.flush();
+    if (saver.status === 'saving') await new Promise((r) => saver.addEventListener('status', () => saver.status !== 'saving' && r(), { once: true }));
+    location.hash = '#/';
+  };
+  const handle = mountCircuitEditor(root, st, saver, { onExit: exit });
+  editorHandle = { destroy() { saver.flush(); handle.destroy(); saver.destroy(); } };
+  window.__circuit = handle; // usado nos testes automáticos
+}
+
 async function logout() {
   try { await api.logout(); } catch {}
   session = null; render();
@@ -221,6 +266,7 @@ async function render() {
   const hash = location.hash;
   let m;
   if ((m = /^#\/d\/([a-f0-9]{16})$/.exec(hash))) return renderEditor(m[1]);
+  if ((m = /^#\/c\/([a-f0-9]{16})$/.exec(hash))) return renderCircuit(m[1]);
   if (hash === '#/novo') return renderEditor(null);
   return renderGallery();
 }
