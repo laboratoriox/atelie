@@ -9,8 +9,14 @@ let token = null;
 try { token = localStorage.getItem(TOKEN_KEY); } catch {}
 function setToken(t) {
   token = t || null;
-  try { if (token) localStorage.setItem(TOKEN_KEY, token); else localStorage.removeItem(TOKEN_KEY); } catch {}
+  try { if (token) localStorage.setItem(TOKEN_KEY, token); else { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem('atelie_list_v1'); } } catch {}
 }
+
+const LIST_KEY = 'atelie_list_v1';
+function readListCache() { try { const c = JSON.parse(localStorage.getItem(LIST_KEY)); return c && Array.isArray(c.drawings) ? c : null; } catch { return null; } }
+function writeListCache(drawings) { try { localStorage.setItem(LIST_KEY, JSON.stringify({ t: Date.now(), drawings })); } catch {} }
+// Apaga só a validade (mantém a cópia para o caso de erro do servidor).
+function dropListCache() { try { const c = readListCache(); if (c) localStorage.setItem(LIST_KEY, JSON.stringify({ ...c, t: 0 })); } catch {} }
 
 let onUnauthorized = () => {};
 export const setUnauthorizedHandler = (fn) => { onUnauthorized = fn; };
@@ -51,11 +57,24 @@ export const api = {
   },
   async logout() { try { await request('POST', '/api/auth/logout', null, { noAuthRedirect: true }); } finally { setToken(null); } },
   me: () => request('GET', '/api/me', null, { noAuthRedirect: true }),
-  list: () => request('GET', '/api/drawings'),
-  create: (meta) => request('POST', '/api/drawings', meta),
+  // A galeria guarda a última lista por 2 min (poupa o limite diário do KV) e,
+  // se o servidor falhar, mostra a última lista guardada em vez de ficar vazia.
+  async list() {
+    const c = readListCache();
+    if (c && Date.now() - c.t < 120000) return { drawings: c.drawings };
+    try {
+      const r = await request('GET', '/api/drawings');
+      writeListCache(r.drawings);
+      return r;
+    } catch (e) {
+      if (c && e.status !== 401) return { drawings: c.drawings, stale: true };
+      throw e;
+    }
+  },
+  async create(meta) { const r = await request('POST', '/api/drawings', meta); dropListCache(); return r; },
   get: (id) => request('GET', `/api/drawings/${id}`),
-  save: (id, meta) => request('PUT', `/api/drawings/${id}`, meta),
-  remove: (id) => request('DELETE', `/api/drawings/${id}`),
+  async save(id, meta) { const r = await request('PUT', `/api/drawings/${id}`, meta); dropListCache(); return r; },
+  async remove(id) { const r = await request('DELETE', `/api/drawings/${id}`); dropListCache(); return r; },
   thumb: (id) => request('GET', `/api/drawings/${id}/thumb`),
   uploadLayer: (id, blob) => request('POST', `/api/drawings/${id}/layers`, blob),
   /** Baixa o PNG de uma camada (precisa do cabeçalho de login, então não dá para usar <img src>). */

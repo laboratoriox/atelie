@@ -57,8 +57,38 @@ function to220() {
   return mk('TO220', 'TO-220 (3 pinos, vertical)', [tht(1, -2.54, 0, { s: 'r', w: 2, h: 2.2, d: 1.1 }), tht(2, 0, 0, { w: 2, h: 2.2, d: 1.1 }), tht(3, 2.54, 0, { w: 2, h: 2.2, d: 1.1 })],
     [rect(10.2, 4.6), L([-5.1, -1.8], [5.1, -1.8])]);
 }
+// Módulo/CI de duas fileiras: k pinos de cada lado, passo e distância entre fileiras livres.
+// Numeração como num CI: lado esquerdo de cima para baixo (1..k), direito de baixo para cima (k+1..2k).
+function dual(k, pitch, span) {
+  const pads = [];
+  for (let i = 0; i < k; i++) pads.push(tht(i + 1, -span / 2, (i - (k - 1) / 2) * pitch, { s: i === 0 ? 'r' : 'o', w: Math.min(1.9, pitch - 0.6), h: Math.min(1.9, pitch - 0.6), d: pitch >= 2 ? 0.9 : 0.7 }));
+  for (let i = 0; i < k; i++) pads.push(tht(k + 1 + i, span / 2, ((k - 1) / 2 - i) * pitch, { s: 'o', w: Math.min(1.9, pitch - 0.6), h: Math.min(1.9, pitch - 0.6), d: pitch >= 2 ? 0.9 : 0.7 }));
+  const hh = (k * pitch) / 2 + 0.3, hw = span / 2 + 1.4;
+  return mk(`DUAL-${k}-${pitch}-${span}`, `Módulo de 2 fileiras: ${k}+${k} pinos, passo ${String(pitch).replace('.', ',')} mm, fileiras a ${String(span).replace('.', ',')} mm`,
+    pads, [rect(hw * 2, hh * 2), C(-span / 2 - 1.2, -hh + 0.3, 0.3)]);
+}
+// CI SMD de duas fileiras (SOIC): passo 1,27 mm.
+function soic(n) {
+  const rows = n / 2, span = 5.4, pw = 1.6, ph = 0.6, pads = [];
+  for (let i = 0; i < rows; i++) pads.push(smd(i + 1, -span / 2, (i - (rows - 1) / 2) * 1.27, pw, ph));
+  for (let i = 0; i < rows; i++) pads.push(smd(rows + 1 + i, span / 2, ((rows - 1) / 2 - i) * 1.27, pw, ph));
+  const hh = (rows * 1.27) / 2 + 0.2;
+  return mk(`SOIC-${n}`, `SOIC-${n} (CI SMD, passo 1,27)`, pads, [rect(3.9, hh * 2), C(-1.2, -hh + 0.7, 0.3)]);
+}
+// CI SMD de quatro lados (TQFP/LQFP). tabela: pinos → [passo, corpo]. Confira o desenho com o datasheet do seu chip.
+const QFP_TAB = { 32: [0.8, 7], 44: [0.8, 10], 48: [0.5, 7], 64: [0.5, 10], 100: [0.5, 14] };
+function qfp(n) {
+  const t = QFP_TAB[n]; if (!t) return null;
+  const [pitch, body] = t, k = n / 4, c = body / 2 + 1.1, pl = pitch < 0.6 ? 1.4 : 1.5, pwid = pitch * 0.55, pads = [];
+  const at = (side, i) => { const o = (i - (k - 1) / 2) * pitch; // 0 esquerda (cima→baixo), 1 baixo (esq→dir), 2 direita (baixo→cima), 3 cima (dir→esq)
+    if (side === 0) return smd(0, -c, o, pl, pwid); if (side === 1) return smd(0, o, c, pwid, pl);
+    if (side === 2) return smd(0, c, -o, pl, pwid); return smd(0, -o, -c, pwid, pl); };
+  for (let s = 0; s < 4; s++) for (let i = 0; i < k; i++) { const p = at(s, i); p.n = String(s * k + i + 1); pads.push(p); }
+  const h = body / 2;
+  return mk(`QFP-${n}`, `QFP-${n} (CI SMD, ${String(pitch).replace('.', ',')} mm, corpo ${body}×${body})`, pads, [rect(body, body), C(-h + 0.9, -h + 0.9, 0.35)]);
+}
 function dip(n) {
-  const rows = n / 2, wide = n >= 28 ? 15.24 : 7.62, pads = [];
+  const rows = n / 2, wide = n >= 40 ? 15.24 : 7.62, pads = [];
   for (let i = 0; i < rows; i++) pads.push(tht(i + 1, -wide / 2, (i - (rows - 1) / 2) * 2.54, { s: i === 0 ? 'r' : 'o', w: 1.6, h: 1.6 }));
   for (let i = 0; i < rows; i++) pads.push(tht(rows + 1 + i, wide / 2, ((rows - 1) / 2 - i) * 2.54, { s: 'o', w: 1.6, h: 1.6 }));
   const hh = rows * 2.54 / 2 + 0.3, hw = wide / 2 - 1.2;
@@ -96,6 +126,9 @@ export function getFootprint(id) {
   else if ((m = /^TO92-([A-Z]{3})$/.exec(id))) f = to92(m[1]);
   else if (id === 'TO220') f = to220();
   else if ((m = /^DIP-(\d+)$/.exec(id)) && Number(m[1]) % 2 === 0 && Number(m[1]) >= 4 && Number(m[1]) <= 64) f = dip(Number(m[1]));
+  else if ((m = /^DUAL-(\d+)-([\d.]+)-([\d.]+)$/.exec(id)) && Number(m[1]) >= 1 && Number(m[1]) <= 40 && Number(m[2]) >= 1.27 && Number(m[2]) <= 5.08 && Number(m[3]) >= 2.54 && Number(m[3]) <= 60) f = dual(Number(m[1]), Number(m[2]), Number(m[3]));
+  else if ((m = /^SOIC-(\d+)$/.exec(id)) && Number(m[1]) % 2 === 0 && Number(m[1]) >= 8 && Number(m[1]) <= 28) f = soic(Number(m[1]));
+  else if ((m = /^QFP-(\d+)$/.exec(id)) && QFP_TAB[m[1]]) f = qfp(Number(m[1]));
   else if ((m = /^SIP-(\d+)(?:-([\d.]+))?$/.exec(id)) && Number(m[1]) >= 1 && Number(m[1]) <= 64) f = sip(Number(m[1]), m[2] ? Number(m[2]) : 2.54);
   else if ((m = /^TERM-(\d)$/.exec(id))) f = term(Number(m[1]));
   else if (id === 'TACT-6MM') f = TACT();
@@ -133,14 +166,26 @@ export const isPhysical = (part) => !NOT_PHYSICAL.has(part.t);
 /** Lista de pegadas possíveis para uma peça do esquema. */
 export function choicesFor(part) {
   const n = (part.pins ? part.pins.length : 0);
-  if (part.t === 'IC') { const out = []; if (n % 2 === 0 && n >= 4) out.push(`DIP-${n}`); out.push(`SIP-${n}`); return out; }
+  if (part.t === 'IC') {
+    const out = [];
+    if (part.fp && fpMatches(part.fp, n)) out.push(part.fp);
+    if (n % 2 === 0 && n >= 4 && n <= 64) out.push(`DIP-${n}`);
+    if (n % 2 === 0 && n >= 8 && n <= 28) out.push(`SOIC-${n}`);
+    if (QFP_TAB[n]) out.push(`QFP-${n}`);
+    if (n % 2 === 0 && n >= 2) out.push(`DUAL-${n / 2}-2.54-${n >= 40 ? 15.24 : 7.62}`);
+    out.push(`SIP-${n}`);
+    return [...new Set(out)].filter((id) => getFootprint(id));
+  }
   if (part.t === 'HDR') return [`SIP-${n || 2}`, `TERM-${n}`].filter((x) => getFootprint(x));
   if (part.t === 'OPAMP' || part.t === 'NOT' || /^(AND|NAND|OR|NOR|XOR)$/.test(part.t)) return ['SIP-3', 'SIP-4', 'SIP-5'].filter((id) => Number(id.slice(4)) >= (part.t === 'OPAMP' ? 3 : part.t === 'NOT' ? 2 : 3));
   if (part.t === 'TRAFO') return ['SIP-4'];
   if (part.t === '7805') return ['TO220', 'TO92-EBC'];
   return CHOICES[part.t] || ['SIP-2'];
 }
+/** A pegada id tem o mesmo número de pads que o símbolo tem de pinos? */
+export function fpMatches(id, n) { const f = getFootprint(id); return !!f && f.pads.length === n; }
 export const defaultFootprint = (part) => {
+  if (part.fp && part.pins && fpMatches(part.fp, part.pins.length)) return part.fp;
   if (part.t === 'IC' && (part.pins || []).length === 8) return 'DIP-8';
   if (part.t === '7805') return 'TO220';
   return choicesFor(part)[0];

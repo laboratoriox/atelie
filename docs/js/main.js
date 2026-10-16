@@ -113,7 +113,7 @@ async function renderGallery() {
     grid)));
 
   let list = [];
-  try { list = (await api.list()).drawings; } catch (e) { toast(e.message, 'err'); }
+  try { const r = await api.list(); list = r.drawings; if (r.stale) toast('O servidor está com problema agora. Mostrando a última lista guardada.', 'err'); } catch (e) { toast(e.message, 'err'); }
   grid.removeAttribute('aria-busy');
   list = list.filter((d) => (d.kind === 'circuit') === circ());
   if (!list.length) {

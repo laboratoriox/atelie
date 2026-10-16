@@ -385,3 +385,29 @@ input[type=range].hue::-webkit-slider-thumb { margin-top: -4px; background: var(
 .ce-verdict { font-size: 14px; font-weight: 600; } .ce-verdict.ok { color: var(--ok); } .ce-verdict.bad { color: #ff8f84; } .ce-verdict.warn { color: var(--cadmium); }
 .ce-link em.warn { color: var(--cadmium); }
 .ce-link:disabled { opacity: .6; cursor: default; }
+
+/* ---- peças próprias (Minhas peças) ---- */
+.ce-create { margin: 8px 10px 4px; width: calc(100% - 20px); justify-content: center; }
+.ce-itemwrap { position: relative; display: grid; }
+.ce-itemwrap .ce-item { padding-right: 34px; }
+.ce-itemdel { position: absolute; top: 50%; right: 4px; transform: translateY(-50%); width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--dim); }
+.ce-itemdel:hover { background: rgba(255, 255, 255, .08); color: #ff8f84; }
+.ce-itemdel .ic, .ce-itemdel svg { width: 16px; height: 16px; }
+
+/* ---- bobinas ---- */
+.ce-coil > summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; }
+.ce-coil > summary::-webkit-details-marker { display: none; }
+.ce-coil > summary::after { content: '▾'; color: var(--dim); font-size: 13px; transition: transform .15s; }
+.ce-coil:not([open]) > summary::after { transform: rotate(-90deg); }
+.ce-coil > summary h3 { margin: 0; }
+.ce-coil[open] > summary { margin-bottom: 8px; }
+.ce-coil > div { display: grid; gap: 8px; }
+.ce-coilinfo { margin: 2px 0; padding: 8px 10px 8px 24px; border-radius: 8px; background: rgba(255, 255, 255, .05); font-size: 12px; color: var(--dim); display: grid; gap: 3px; }
+.warnline { color: var(--cadmium); }
+
+/* ---- imprimir / salvar a placa ---- */
+.fabbody { display: grid; gap: 8px; }
+.fab-prevwrap { display: grid; place-items: center; padding: 8px; border-radius: 10px; background: #5a5d63; overflow: auto; }
+.fab-prev { background: #fff; box-shadow: 0 2px 10px #0006; max-width: 100%; }
+.fab-tip { color: var(--cadmium); }
+.modal:has(.fabbody) { width: min(100%, 540px); }

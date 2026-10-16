@@ -163,7 +163,7 @@ export class Board {
   _fpFits(id, part) {
     const fp = getFootprint(id); if (!fp) return false;
     const n = pinsOf(part).length, map = pinIndexMap(fp, part);
-    if (/^(DIP|SIP)-/.test(id) && fp.pads.length !== n) return false;
+    if (/^(DIP|SIP|DUAL|SOIC|QFP)-/.test(id) && fp.pads.length !== n) return false;
     return map.every((k) => k < n);
   }
   _place(parts, res) {
@@ -179,6 +179,13 @@ export class Board {
       this.fps.push(inst); res.added.push(p.id);
       cx += w + gap; rowH = Math.max(rowH, hh);
     }
+    // contorno retangular que ficou pequeno: cresce (de 5 em 5 mm) para caber tudo que acabou de entrar
+    if (this.outline.length === 4) {
+      const ys = this.fps.flatMap((f) => fpBoxPoly(f)), xs = ys.map((q) => q[0]), yy = ys.map((q) => q[1]);
+      const ob = this.outlineBox(), need = { x1: Math.max(ob.x1, Math.max(...xs) + margin), y1: Math.max(ob.y1, Math.max(...yy) + margin) };
+      const g = (v) => Math.ceil(v / 5) * 5;
+      if (need.x1 > ob.x1 || need.y1 > ob.y1) this.outline = outlineRect(g(need.x1 - ob.x0), g(need.y1 - ob.y0), ob.x0, ob.y0);
+    }
   }
 
   // ---------- edição ----------
@@ -186,6 +193,18 @@ export class Board {
     return this.edit(() => { const f = { id: uid(), part: null, fp: fpId, x: r2(x), y: r2(y), r: 0, b: false }; this.fps.push(f); return f; });
   }
   setFootprint(id, fpId) { this.edit(() => { const f = this.fp(id); if (f && getFootprint(fpId)) f.fp = fpId; }); }
+  /** Coloca de uma vez trilhas, vias e pads soltos (usado pelo gerador de bobinas). Devolve os ids criados. */
+  addCopper({ tracks = [], vias = [], pads = [], holes = [], outline = null }) {
+    return this.edit(() => {
+      const out = { tracks: [], vias: [], fps: [] };
+      if (outline) this.outline = outline.map((p) => [r2(p[0]), r2(p[1])]);
+      for (const hd of holes) { const f = { id: uid(), part: null, fp: `HOLE-${r2(hd.d)}`, x: r2(hd.x), y: r2(hd.y), r: 0, b: false }; if (getFootprint(f.fp)) { this.fps.push(f); out.fps.push(f.id); } }
+      for (const t of tracks) { const o = { id: uid(), l: t.l === 'B' ? 'B' : 'F', w: r2(t.w), a: [r2(t.a[0]), r2(t.a[1])], b: [r2(t.b[0]), r2(t.b[1])] }; this.tracks.push(o); out.tracks.push(o.id); }
+      for (const v of vias) { const o = { id: uid(), x: r2(v.x), y: r2(v.y), d: r2(v.d ?? this.rules.viaD), h: r2(v.h ?? this.rules.viaH) }; this.vias.push(o); out.vias.push(o.id); }
+      for (const p of pads) { const f = { id: uid(), part: null, fp: 'SIP-1', x: r2(p.x), y: r2(p.y), r: 0, b: false }; this.fps.push(f); out.fps.push(f.id); }
+      return out;
+    });
+  }
   addTrack(l, w, a, b) {
     return this.edit(() => { if (a[0] === b[0] && a[1] === b[1]) return null; const t = { id: uid(), l: l === 'B' ? 'B' : 'F', w: r2(w), a: [r2(a[0]), r2(a[1])], b: [r2(b[0]), r2(b[1])] }; this.tracks.push(t); return t; });
   }

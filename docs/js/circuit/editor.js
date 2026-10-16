@@ -1,7 +1,8 @@
 // Editor de circuitos: tela com zoom, paleta de peças, fios, textos, propriedades e exportação.
 import { h, modal, toast, clamp, makeCanvas, canvasToBlob } from '../util.js';
 import { icon } from '../icons.js';
-import { LIBRARY, CATEGORIES, partBox, symbolName, isPower, hasEditablePins } from './symbols.js';
+import { LIBRARY, CATEGORIES, partBox, symbolName, isPower, hasEditablePins, loadCustomParts, addCustomPart, removeCustomPart } from './symbols.js';
+import { getFootprint } from '../pcb/footprints.js';
 import { snap10, distSeg } from './schem.js';
 import { THEMES, paint, paintPart, canvasOut, toCanvas, toSVG } from './render.js';
 
@@ -61,7 +62,7 @@ export function mountCircuitEditor(root, state, saver, { onExit, onSwitch }) {
   const top = h('header.topbar', {}, iconBtn(icon.back, 'Voltar à galeria', () => onExit()),
     h('div.docinfo', {}, nameIn, statusEl), h('div.spacer'),
     ...(onSwitch ? [h('div.ce-seg', { role: 'tablist' }, h('button', { type: 'button', role: 'tab', 'aria-selected': 'true' }, 'Esquema'), h('button', { type: 'button', role: 'tab', 'aria-selected': 'false', onclick: () => onSwitch('pcb') }, 'Placa'))] : []),
-    undoB, redoB, iconBtn(icon.download, 'Exportar', () => openExport()));
+    iconBtn(icon.check, 'Salvar agora (Ctrl+S)', () => { saver.flush(); toast('Salvando…'); }), undoB, redoB, iconBtn(icon.download, 'Exportar', () => openExport()));
 
   const toolDefs = [['sel', 'Selecionar (V)', icon.cursor, 'Selecionar'], ['wire', 'Fio (W)', icon.wire, 'Fio'], ['parts', 'Peças (P)', icon.chip, 'Peças'], ['text', 'Texto (T)', icon.text, 'Texto'], ['pan', 'Mover a tela (H)', icon.hand, 'Mão']];
   const toolBtns = {};
@@ -90,11 +91,56 @@ export function mountCircuitEditor(root, state, saver, { onExit, onSwitch }) {
     const groups = CATEGORIES.map((cat) => {
       const items = LIBRARY.filter((l) => l.cat === cat && (!q || (l.name + ' ' + l.id + ' ' + (l.val || '')).toLowerCase().includes(q)));
       if (!items.length) return null;
-      const d = h('details.ce-cat', { open: !!q || cat === CATEGORIES[0] || cat === CATEGORIES[1] }, h('summary', {}, cat),
-        h('div.ce-items', {}, ...items.map((it) => h('button.ce-item', { type: 'button', title: it.name, 'aria-pressed': String(placeId === it.id), onclick: () => choosePart(it.id) }, preview(it), h('span', {}, it.name)))));
+      const itemBtn = (it) => h('button.ce-item', { type: 'button', title: it.name, 'aria-pressed': String(placeId === it.id), onclick: () => choosePart(it.id) }, preview(it), h('span', {}, it.name));
+      const d = h('details.ce-cat', { open: !!q || cat === CATEGORIES[0] || cat === CATEGORIES[1] || cat === 'Minhas peças' }, h('summary', {}, cat),
+        h('div.ce-items', {}, ...items.map((it) => (it.custom
+          ? h('div.ce-itemwrap', {}, itemBtn(it), h('button.ce-itemdel', { type: 'button', title: 'Apagar esta peça da minha lista', 'aria-label': `Apagar ${it.name} da minha lista`, onclick: () => { removeCustomPart(it.id); if (placeId === it.id) setTool('sel'); buildPalette(); toast('Peça removida da sua lista. Peças já colocadas no circuito continuam.'); }, html: icon.trash }))
+          : itemBtn(it)))));
       return d;
     }).filter(Boolean);
-    palList.replaceChildren(...(groups.length ? groups : [h('p.hint', {}, 'Nenhuma peça com esse nome.')]));
+    const create = h('button.btn.sm.ce-create', { type: 'button', onclick: () => partCreator() }, h('span.ic', { html: icon.plus }), 'Criar chip ou módulo');
+    palList.replaceChildren(create, ...(groups.length ? groups : [h('p.hint', {}, 'Nenhuma peça com esse nome.')]));
+  }
+
+  // ---------- criar chip / módulo próprio ----------
+  function partCreator() {
+    const nameIn = h('input', { value: '', maxLength: 40, placeholder: 'Ex.: ESP32-S3, ATmega8, módulo GPS…', 'aria-label': 'Nome do chip' });
+    const prefIn = h('input', { value: 'U', maxLength: 4, 'aria-label': 'Letra do nome (U, J, M…)' });
+    const pinsTa = h('textarea', { rows: 8, spellcheck: false, placeholder: 'Um nome de pino por linha, na ordem física do chip:\nlado esquerdo de cima para baixo (1, 2, 3…),\ndepois o lado direito de baixo para cima.\n\nEx.:\nVCC\nGND\nTX\nRX', 'aria-label': 'Nomes dos pinos' });
+    const kinds = [['auto', 'Escolher depois, na placa'], ['dip', 'CI com 2 fileiras (DIP, passo 2,54)'], ['dual', 'Módulo/placa com 2 fileiras de pinos (Nano, ESP32…)'], ['soic', 'CI SMD pequeno (SOIC, passo 1,27)'], ['qfp', 'CI SMD com pinos nos 4 lados (QFP)'], ['sip', 'Fileira única de pinos']];
+    const kindSel = h('select', { 'aria-label': 'Formato na placa', onchange: () => upd() }, ...kinds.map(([v, l]) => h('option', { value: v }, l)));
+    const pitchIn = h('input', { type: 'number', value: '2.54', step: '0.01', min: '1.27', max: '5.08', 'aria-label': 'Passo entre pinos (mm)', oninput: () => upd() });
+    const spanIn = h('input', { type: 'number', value: '22.86', step: '0.01', min: '2.54', max: '60', 'aria-label': 'Distância entre as duas fileiras (mm)', oninput: () => upd() });
+    const dualBox = h('div.ce-two', { hidden: true }, h('label.ce-field', {}, h('span.flabel', {}, 'Passo (mm)'), pitchIn), h('label.ce-field', {}, h('span.flabel', {}, 'Distância entre fileiras (mm)'), spanIn));
+    const info = h('p.hint');
+    const pinList = () => pinsTa.value.split('\n').map((s) => s.trim().slice(0, 20)).filter(Boolean).slice(0, 64);
+    const fpId = () => {
+      const n = pinList().length, k = kindSel.value; if (!n || k === 'auto') return '';
+      const id = k === 'dip' ? `DIP-${n}` : k === 'soic' ? `SOIC-${n}` : k === 'qfp' ? `QFP-${n}` : k === 'sip' ? `SIP-${n}` : `DUAL-${n / 2}-${Number(pitchIn.value)}-${Number(spanIn.value)}`;
+      return getFootprint(id) ? id : null;
+    };
+    function upd() {
+      dualBox.hidden = kindSel.value !== 'dual';
+      const n = pinList().length, id = fpId();
+      if (kindSel.value === 'auto') info.textContent = n ? `${n} pino${n > 1 ? 's' : ''}. O formato na placa você escolhe depois, na aba Placa.` : '';
+      else if (!n) info.textContent = 'Escreva os pinos para ver o formato.';
+      else if (id) info.textContent = `${n} pinos → ${getFootprint(id).name}.`;
+      else info.textContent = `Esse formato não combina com ${n} pinos (${kindSel.value === 'qfp' ? 'QFP aceita 32, 44, 48, 64 ou 100' : kindSel.value === 'soic' ? 'SOIC aceita 8 a 28, número par' : 'precisa de número par de pinos'}).`;
+    }
+    pinsTa.addEventListener('input', upd);
+    const body = h('div.newform', {}, h('label.ce-field', {}, h('span.flabel', {}, 'Nome'), nameIn), h('label.ce-field', {}, h('span.flabel', {}, 'Letra do nome (U = chip, J = módulo)'), prefIn),
+      h('label.ce-field', {}, h('span.flabel', {}, 'Pinos (um por linha)'), pinsTa), h('label.ce-field', {}, h('span.flabel', {}, 'Formato na placa'), kindSel), dualBox, info,
+      h('p.hint', {}, 'Confira as medidas com o datasheet ou com uma régua no seu chip/placa. A peça fica salva em “Minhas peças”, neste navegador.'));
+    const ok = () => {
+      const pins = pinList(), name = nameIn.value.trim();
+      if (!name) { toast('Dê um nome para o chip.', 'err'); nameIn.focus(); return; }
+      if (pins.length < 2) { toast('Coloque pelo menos 2 pinos (um por linha).', 'err'); pinsTa.focus(); return; }
+      const fp = fpId(); if (fp === null) { toast('O formato escolhido não combina com a quantidade de pinos.', 'err'); return; }
+      const id = addCustomPart({ name, prefix: (prefIn.value.trim().toUpperCase().replace(/[^A-Z]/g, '') || 'U').slice(0, 3), pins, fp });
+      m.close(); buildPalette(); choosePart(id);
+    };
+    const m = modal('Criar chip ou módulo', body, [h('button.btn', { onclick: () => m.close() }, 'Cancelar'), h('button.btn.primary', { onclick: ok }, 'Criar e colocar')]);
+    upd();
   }
   function choosePart(id) {
     placeId = id; ghost = null; ghostR = 0; ghostM = false; wireStart = null; clearSel();
@@ -506,7 +552,7 @@ export function mountCircuitEditor(root, state, saver, { onExit, onSwitch }) {
   document.addEventListener('keydown', onKey); document.addEventListener('keyup', onKeyUp);
   const ro = new ResizeObserver(() => resize()); ro.observe(canvas);
 
-  buildPalette(); syncFabs(); syncTools(); updateHint(); updateUndo(); renderPanel(); canvas.dataset.tool = tool;
+  loadCustomParts(); buildPalette(); syncFabs(); syncTools(); updateHint(); updateUndo(); renderPanel(); canvas.dataset.tool = tool;
   resize(); fit();
   if (isMobile() && sch.isEmpty) setSheet('parts');
 

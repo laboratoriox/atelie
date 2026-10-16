@@ -75,6 +75,7 @@ export class Schematic {
     return this.edit(() => {
       const p = { id: uid(), t: item.t, x: snap10(x), y: snap10(y), r, m, ref: this.nextRef(item.prefix), val: item.val || '' };
       if (item.pins) p.pins = [...item.pins];
+      if (item.fp) p.fp = item.fp;
       this.parts.push(p); return p;
     });
   }
@@ -83,6 +84,7 @@ export class Schematic {
     const item = libItem(libId); if (!item) return null;
     const p = { id: uid(), t: item.t, x: snap10(x), y: snap10(y), r, m, ref: this.nextRef(item.prefix), val: item.val || '' };
     if (item.pins) p.pins = [...item.pins];
+    if (item.fp) p.fp = item.fp;
     return p;
   }
   insertParts(list) { return this.edit(() => { list.forEach((p) => this.parts.push(p)); return list; }); }

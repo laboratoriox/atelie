@@ -145,12 +145,63 @@ export const LIBRARY = [
   { id: 'VCC', t: 'VCC', name: 'Alimentação (+5V, +12V…)', cat: 'Fontes e terra', prefix: '#PWR', val: '+5V' },
   { id: 'NET', t: 'NET', name: 'Rótulo de ligação (nome)', cat: 'Fontes e terra', prefix: '#NET', val: 'SINAL' },
   { id: 'IC', t: 'IC', name: 'Circuito integrado (pinos editáveis)', cat: 'CIs e módulos', prefix: 'U', val: 'CI', pins: DEFAULT_IC },
-  { id: '555', t: 'IC', name: 'Temporizador 555', cat: 'CIs e módulos', prefix: 'U', val: 'NE555', pins: ['GND', 'TRIG', 'OUT', 'RESET', 'CTRL', 'THR', 'DIS', 'VCC'] },
+  { id: '555', t: 'IC', name: 'Temporizador 555', cat: 'CIs e módulos', prefix: 'U', val: 'NE555', pins: ['GND', 'TRIG', 'OUT', 'RESET', 'CTRL', 'THR', 'DIS', 'VCC'], fp: 'DIP-8' },
   { id: '7805', t: 'IC', name: 'Regulador 7805', cat: 'CIs e módulos', prefix: 'U', val: '7805', pins: ['IN', 'GND', 'OUT'] },
+  { id: 'LM358', t: 'IC', name: 'LM358 (2 amplificadores operacionais)', cat: 'CIs e módulos', prefix: 'U', val: 'LM358', pins: ['OUT1', 'IN1−', 'IN1+', 'GND', 'IN2+', 'IN2−', 'OUT2', 'VCC'], fp: 'DIP-8' },
+  { id: 'L293D', t: 'IC', name: 'L293D (ponte H para 2 motores)', cat: 'CIs e módulos', prefix: 'U', val: 'L293D', pins: ['EN1,2', '1A', '1Y', 'GND', 'GND', '2Y', '2A', 'VS', 'EN3,4', '3A', '3Y', 'GND', 'GND', '4Y', '4A', 'VSS'], fp: 'DIP-16' },
+  { id: 'ULN2003', t: 'IC', name: 'ULN2003 (7 drivers para bobinas/relés)', cat: 'CIs e módulos', prefix: 'U', val: 'ULN2003', pins: ['1B', '2B', '3B', '4B', '5B', '6B', '7B', 'GND', 'COM', '7C', '6C', '5C', '4C', '3C', '2C', '1C'], fp: 'DIP-16' },
+  { id: '74HC595', t: 'IC', name: '74HC595 (registrador de deslocamento)', cat: 'CIs e módulos', prefix: 'U', val: '74HC595', pins: ['QB', 'QC', 'QD', 'QE', 'QF', 'QG', 'QH', 'GND', 'QH\'', 'SRCLR', 'SRCLK', 'RCLK', 'OE', 'SER', 'QA', 'VCC'], fp: 'DIP-16' },
   { id: 'HDR', t: 'HDR', name: 'Módulo / conector (pinos editáveis)', cat: 'CIs e módulos', prefix: 'J', val: 'Conector', pins: ['1', '2', '3', '4'] },
   { id: 'HDR2', t: 'HDR', name: 'Conector de 2 pinos', cat: 'CIs e módulos', prefix: 'J', val: 'Conn', pins: ['1', '2'] },
+
+  // ---- chips e placas para projetos maker (pinagem conferida em datasheets; confira a sua placa antes de fabricar) ----
+  { id: 'ATMEGA328P', t: 'IC', name: 'ATmega328P (DIP-28, o do Arduino Uno)', cat: 'Microcontroladores', prefix: 'U', val: 'ATmega328P',
+    pins: ['PC6/RESET', 'PD0/RXD', 'PD1/TXD', 'PD2/INT0', 'PD3/INT1', 'PD4', 'VCC', 'GND', 'PB6/XTAL1', 'PB7/XTAL2', 'PD5', 'PD6', 'PD7', 'PB0', 'PB1', 'PB2/SS', 'PB3/MOSI', 'PB4/MISO', 'PB5/SCK', 'AVCC', 'AREF', 'GND', 'PC0/A0', 'PC1/A1', 'PC2/A2', 'PC3/A3', 'PC4/SDA', 'PC5/SCL'], fp: 'DIP-28' },
+  { id: 'ATMEGA328AU', t: 'IC', name: 'ATmega328P (TQFP-32, SMD)', cat: 'Microcontroladores', prefix: 'U', val: 'ATmega328P-AU',
+    pins: ['PD3', 'PD4', 'GND', 'VCC', 'GND', 'VCC', 'PB6/XTAL1', 'PB7/XTAL2', 'PD5', 'PD6', 'PD7', 'PB0', 'PB1', 'PB2', 'PB3', 'PB4', 'PB5', 'AVCC', 'ADC6', 'AREF', 'GND', 'ADC7', 'PC0', 'PC1', 'PC2', 'PC3', 'PC4', 'PC5', 'PC6/RESET', 'PD0', 'PD1', 'PD2'], fp: 'QFP-32' },
+  { id: 'ATTINY85', t: 'IC', name: 'ATtiny85 (DIP-8)', cat: 'Microcontroladores', prefix: 'U', val: 'ATtiny85', pins: ['PB5/RESET', 'PB3', 'PB4', 'GND', 'PB0/MOSI', 'PB1/MISO', 'PB2/SCK', 'VCC'], fp: 'DIP-8' },
+  { id: 'ESP32DEV', t: 'IC', name: 'ESP32 DevKit (30 pinos)', cat: 'Microcontroladores', prefix: 'U', val: 'ESP32 DevKit',
+    pins: [...['EN', 'GPIO36(VP)', 'GPIO39(VN)', 'GPIO34', 'GPIO35', 'GPIO32', 'GPIO33', 'GPIO25', 'GPIO26', 'GPIO27', 'GPIO14', 'GPIO12', 'GPIO13', 'GND', 'VIN'],
+      ...['GPIO23', 'GPIO22', 'GPIO1(TX0)', 'GPIO3(RX0)', 'GPIO21', 'GPIO19', 'GPIO18', 'GPIO5', 'GPIO17(TX2)', 'GPIO16(RX2)', 'GPIO4', 'GPIO2', 'GPIO15', 'GND', '3V3'].reverse()], fp: 'DUAL-15-2.54-22.86' },
+  { id: 'NANO', t: 'IC', name: 'Arduino Nano (30 pinos)', cat: 'Microcontroladores', prefix: 'U', val: 'Arduino Nano',
+    pins: [...['D1/TX', 'D0/RX', 'RST', 'GND', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9', 'D10', 'D11', 'D12'],
+      ...['VIN', 'GND', 'RST', '5V', 'A7', 'A6', 'A5', 'A4', 'A3', 'A2', 'A1', 'A0', 'AREF', '3V3', 'D13'].reverse()], fp: 'DUAL-15-2.54-15.24' },
+  { id: 'PICO', t: 'IC', name: 'Raspberry Pi Pico (40 pinos)', cat: 'Microcontroladores', prefix: 'U', val: 'Pico',
+    pins: [...['GP0', 'GP1', 'GND', 'GP2', 'GP3', 'GP4', 'GP5', 'GND', 'GP6', 'GP7', 'GP8', 'GP9', 'GND', 'GP10', 'GP11', 'GP12', 'GP13', 'GND', 'GP14', 'GP15'],
+      ...['VBUS', 'VSYS', 'GND', '3V3_EN', '3V3', 'ADC_VREF', 'GP28', 'AGND', 'GP27', 'GP26', 'RUN', 'GP22', 'GND', 'GP21', 'GP20', 'GP19', 'GP18', 'GND', 'GP17', 'GP16'].reverse()], fp: 'DUAL-20-2.54-17.78' },
+  { id: 'CH340G', t: 'IC', name: 'CH340G (USB-serial, SOIC-16)', cat: 'Microcontroladores', prefix: 'U', val: 'CH340G', pins: ['GND', 'TXD', 'RXD', 'V3', 'UD+', 'UD−', 'XI', 'XO', 'CTS', 'DSR', 'RI', 'DCD', 'DTR', 'RTS', 'R232', 'VCC'], fp: 'SOIC-16' },
 ];
-export const CATEGORIES = [...new Set(LIBRARY.map((l) => l.cat))];
+export const CATEGORIES = [];
+const CUSTOM_KEY = 'atelie_custom_parts_v1';
+function refreshCategories() { CATEGORIES.length = 0; CATEGORIES.push(...new Set(LIBRARY.map((l) => l.cat))); }
+
+// ---------- "Minhas peças": chips e módulos criados pela pessoa (ficam neste navegador) ----------
+export const CUSTOM_CAT = 'Minhas peças';
+export function loadCustomParts() {
+  let list = [];
+  try { const r = JSON.parse(localStorage.getItem(CUSTOM_KEY)); if (Array.isArray(r)) list = r; } catch {}
+  for (let i = LIBRARY.length - 1; i >= 0; i--) if (LIBRARY[i].cat === CUSTOM_CAT) LIBRARY.splice(i, 1);
+  for (const c of list.slice(0, 200)) {
+    if (!c || typeof c.id !== 'string' || !Array.isArray(c.pins) || !c.pins.length) continue;
+    LIBRARY.push({ id: c.id, t: 'IC', name: String(c.name || 'Peça').slice(0, 60), cat: CUSTOM_CAT, prefix: String(c.prefix || 'U').slice(0, 4), val: String(c.name || '').slice(0, 40), pins: c.pins.slice(0, 64).map((s) => String(s).slice(0, 20)), fp: c.fp || undefined, custom: true });
+  }
+  refreshCategories();
+  return LIBRARY.filter((l) => l.custom);
+}
+function saveCustom() {
+  const list = LIBRARY.filter((l) => l.custom).map((l) => ({ id: l.id, name: l.val, prefix: l.prefix, pins: l.pins, fp: l.fp || '' }));
+  try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(list)); } catch {}
+}
+export function addCustomPart({ name, prefix, pins, fp }) {
+  const id = 'C' + Math.random().toString(36).slice(2, 9);
+  LIBRARY.push({ id, t: 'IC', name: name || 'Peça', cat: CUSTOM_CAT, prefix: prefix || 'U', val: name || '', pins, fp: fp || undefined, custom: true });
+  saveCustom(); refreshCategories(); return id;
+}
+export function removeCustomPart(id) {
+  const i = LIBRARY.findIndex((l) => l.id === id && l.custom); if (i < 0) return;
+  LIBRARY.splice(i, 1); saveCustom(); refreshCategories();
+}
+refreshCategories();
 
 const BUILDERS = { IC: buildIC, HDR: buildHDR, NET: buildNET, VCC: buildVCC };
 export const symbolName = (t) => (FIXED[t] ? FIXED[t].name : BUILDERS[t] ? BUILDERS[t]({}).name : t);

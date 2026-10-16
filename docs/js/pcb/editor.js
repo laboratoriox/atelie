@@ -1,11 +1,13 @@
 // Editor da placa de circuito impresso: contorno, pegadas, trilhas (frente e verso), vias.
-import { h, modal, toast, clamp } from '../util.js';
+import { h, modal, toast, clamp, makeCanvas, canvasToBlob } from '../util.js';
 import { icon } from '../icons.js';
 import { canvasOut } from '../circuit/render.js';
 import { getFootprint, choicesFor, footprintName } from './footprints.js';
 import { Board, snapTo, r2, distPtSeg, fpPoint, padShape, shapeDist, outlineRect, outlineRounded, outlineCircle, fpBoxPoly } from './board.js';
 import { paintBoard, PCB_THEME } from './render.js';
 import { autoroute } from './autoroute.js';
+import { SHAPES, buildSpiral, buildStator } from './coil.js';
+import { paintFab, fabBox, fabSvg, fabPdf, fabPng, gerberZip, saveBlob, fabSlug } from './fab.js';
 
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
@@ -50,7 +52,7 @@ export function mountPcbEditor(root, state, saver, { onExit, onSwitch }) {
   const nameIn = h('input.docname', { value: state.name, maxLength: 80, 'aria-label': 'Nome do circuito', onchange: () => { const v = nameIn.value.trim() || 'Circuito sem título'; nameIn.value = v; saver.rename(v); } });
   const statusEl = h('div.save-status', { role: 'status', 'aria-live': 'polite' });
   const seg = h('div.ce-seg', { role: 'tablist' }, h('button', { type: 'button', role: 'tab', 'aria-selected': 'false', onclick: () => onSwitch('sch') }, 'Esquema'), h('button', { type: 'button', role: 'tab', 'aria-selected': 'true' }, 'Placa'));
-  const top = h('header.topbar', {}, iconBtn(icon.back, 'Voltar à galeria', () => onExit()), h('div.docinfo', {}, nameIn, statusEl), h('div.spacer'), seg, undoB, redoB);
+  const top = h('header.topbar', {}, iconBtn(icon.back, 'Voltar à galeria', () => onExit()), h('div.docinfo', {}, nameIn, statusEl), h('div.spacer'), seg, iconBtn(icon.check, 'Salvar agora (Ctrl+S)', () => { saver.flush(); toast('Salvando…'); }), undoB, redoB, iconBtn(icon.download, 'Imprimir ou salvar a placa', () => openFab()));
 
   const toolDefs = [['sel', 'Selecionar (V)', icon.cursor, 'Selecionar'], ['track', 'Trilha (W)', icon.wire, 'Trilha'], ['via', 'Via (I)', icon.via, 'Via'], ['outline', 'Contorno da placa (O)', icon.board, 'Contorno'], ['pan', 'Mover a tela (H)', icon.hand, 'Mão'], ['panel', 'Painel', icon.sliders, 'Painel']];
   const toolBtns = {};
@@ -351,7 +353,7 @@ export function mountPcbEditor(root, state, saver, { onExit, onSwitch }) {
     if (selCount() === 1 && sel.fps.length === 1) kids.push(fpSection(board.fp(sel.fps[0])));
     else if (selCount() === 1 && sel.tracks.length === 1) kids.push(trackSection());
     else if (selCount() > 1) kids.push(h('section.ce-sec', {}, h('h3', {}, `${selCount()} itens selecionados`), h('div.ce-actions', {}, ...(sel.fps.length ? [act(icon.rotate, 'Girar', () => board.rotateFps(sel.fps)), act(icon.mirror, 'Outro lado', () => board.flipFps(sel.fps))] : []), act(icon.trash, 'Excluir', deleteSel, '.danger'))));
-    kids.push(boardSection(), routeSection(), checkSection(), layersSection(), linksSection());
+    kids.push(boardSection(), coilSection(), routeSection(), checkSection(), layersSection(), linksSection());
     panelBody.replaceChildren(...kids);
   }
   function fpSection(f) {
@@ -392,6 +394,113 @@ export function mountPcbEditor(root, state, saver, { onExit, onSwitch }) {
       h('div.ce-actions', {}, act(null, 'Retângulo', () => apply('rect')), act(null, 'Arredondada', () => apply('round')), act(null, 'Redonda (Ø = largura)', () => apply('circle'))),
       h('div.ce-actions', {}, act(icon.plus, 'Furo de fixação', () => { const bb = board.outlineBox(); const f = board.addFree('HOLE-3.2', snapTo(bb.x0 + 4, grid), snapTo(bb.y0 + 4, grid)); sel = { fps: [f.id], tracks: [], vias: [] }; setTool('sel'); onSelChange(); })),
       h('p.hint', {}, 'Dica: use a ferramenta Contorno para desenhar qualquer formato, puxando os cantos.'));
+  }
+
+
+  // ---------- imprimir e salvar ----------
+  const fabCfg = { sheet: 'F', use: 'make', outline: true, dots: true, marks: true, invert: false, paper: 'A4' };
+  function openFab() {
+    if (!board.fps.length && !board.tracks.length) { toast('A placa está vazia. Traga as peças do esquema ou gere uma bobina.'); return; }
+    const an = analysis(), c = fabCfg, name = fabSlug(nameIn.value), hasB = board.fps.some((f) => f.b);
+    const sheets = [['F', 'Cobre da frente'], ['B', 'Cobre do verso'], ['silkF', 'Peças (serigrafia)'], ...(hasB ? [['silkB', 'Peças do verso']] : [])];
+    const opt = () => ({ layer: c.sheet, mirror: c.use === 'make' && (c.sheet === 'F' || c.sheet === 'silkF'), invert: c.invert, outline: c.outline, dots: c.dots && (c.sheet === 'F' || c.sheet === 'B'), marks: c.marks, ruler: true });
+    const box = fabBox(board), W = box.x1 - box.x0, H = box.y1 - box.y0;
+    const prev = h('canvas.fab-prev', { 'aria-label': 'Prévia da folha' }), info = h('p.hint'), tip = h('p.hint.fab-tip');
+    const body = h('div.fabbody');
+    function drawPrev() {
+      const k = Math.min(440 / W, 300 / H), cw = Math.round(W * k * 2), ch = Math.round(H * k * 2); prev.width = cw; prev.height = ch; prev.style.width = Math.round(W * k) + 'px'; prev.style.height = Math.round(H * k) + 'px';
+      const ctx = prev.getContext('2d'); ctx.setTransform(k * 2, 0, 0, k * 2, -box.x0 * k * 2, -box.y0 * k * 2); paintFab(canvasOut(ctx, k * 2), board, an, opt());
+      const [pw, ph] = c.paper === 'A4' ? [210, 297] : [215.9, 279.4], fits = (W <= pw - 20 && H <= ph - 20) || (W <= ph - 20 && H <= pw - 20);
+      info.textContent = `Folha de arte: ${r2(W)} × ${r2(H)} mm. ${fits ? `Cabe em uma folha ${c.paper}.` : `Atenção: não cabe em uma folha ${c.paper}; o PDF sai maior que a folha.`}`;
+      tip.textContent = c.use === 'make'
+        ? (c.sheet === 'F' || c.sheet === 'silkF' ? 'A frente sai ESPELHADA de propósito: o lado impresso vai virado para o cobre.' : 'O verso sai sem espelhar: o lado impresso vai virado para o cobre, com a placa de ponta-cabeça.')
+        : 'Como aparece na tela (olhando a placa de cima).';
+    }
+    const pillRow = (items, get, set) => h('div.ce-quick', {}, ...items.map(([v, l]) => h('button.btn.sm', { type: 'button', 'aria-pressed': String(get() === v), onclick: () => { set(v); rebuild(); } }, l)));
+    const tog = (key, label) => h('button.btn.sm', { type: 'button', 'aria-pressed': String(c[key]), onclick: () => { c[key] = !c[key]; rebuild(); } }, label);
+    const run = (fn) => async () => { try { await fn(); } catch (e) { toast('Não deu certo: ' + e.message, 'err'); } };
+    const fname = (ext) => `${name}-${c.sheet === 'F' ? 'frente' : c.sheet === 'B' ? 'verso' : c.sheet === 'silkF' ? 'pecas' : 'pecas-verso'}.${ext}`;
+    function printArt() {
+      const svg = fabSvg(board, an, opt()).replace(/^<\?xml[^>]*>\s*/, ''), f = document.createElement('iframe');
+      f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'; document.body.append(f);
+      const d = f.contentDocument; d.open(); d.write(`<!doctype html><html><head><meta charset="utf-8"><title>${fabSlug(nameIn.value)}</title><style>@page{size:${c.paper === 'A4' ? 'A4' : 'letter'};margin:10mm}html,body{margin:0;background:#fff}svg{display:block}</style></head><body>${svg}</body></html>`); d.close();
+      setTimeout(() => { f.contentWindow.focus(); f.contentWindow.print(); setTimeout(() => f.remove(), 120000); }, 300);
+    }
+    function rebuild() {
+      body.replaceChildren(
+        h('div.flabel', {}, 'O que imprimir'), pillRow(sheets, () => c.sheet, (v) => { c.sheet = v; }),
+        h('div.flabel', {}, 'Para quê'), pillRow([['make', 'Fazer a placa (toner / fotolito)'], ['view', 'Só olhar']], () => c.use, (v) => { c.use = v; }),
+        h('div.flabel', {}, 'Incluir'), h('div.ce-quick', {}, tog('outline', 'Contorno da placa'), tog('dots', 'Ponto no centro dos furos'), tog('marks', 'Marcas de alinhamento'), tog('invert', 'Negativo (preto ↔ branco)')),
+        h('div.flabel', {}, 'Papel'), pillRow([['A4', 'A4'], ['Carta', 'Carta']], () => c.paper, (v) => { c.paper = v; }),
+        h('div.fab-prevwrap', {}, prev), tip, info,
+        h('div.ce-explist', {},
+          h('button.ce-exp', { type: 'button', onclick: run(() => printArt()) }, h('strong', {}, 'Imprimir'), h('span', {}, 'Abre a impressão do navegador. Escolha tamanho real (100%), sem “ajustar à página”.')),
+          h('button.ce-exp', { type: 'button', onclick: run(() => saveBlob(fabPdf(board, an, opt(), c.paper).blob, fname('pdf'))) }, h('strong', {}, 'Salvar PDF'), h('span', {}, 'Vetorial, no tamanho real. Imprima em qualquer lugar.')),
+          h('button.ce-exp', { type: 'button', onclick: run(async () => { const r = await fabPng(board, an, opt(), makeCanvas, canvasToBlob, 600); saveBlob(r.blob, fname('png')); toast(`PNG salvo (${r.dpi} dpi, ${r.px[0]}×${r.px[1]} pixels).`); }) }, h('strong', {}, 'Salvar imagem PNG'), h('span', {}, '600 dpi com o tamanho gravado no arquivo.')),
+          h('button.ce-exp', { type: 'button', onclick: run(() => saveBlob(new Blob([fabSvg(board, an, opt())], { type: 'image/svg+xml' }), fname('svg'))) }, h('strong', {}, 'Salvar SVG'), h('span', {}, 'Desenho vetorial em milímetros (Inkscape, LibreOffice).')),
+          h('button.ce-exp', { type: 'button', onclick: run(() => { const z = gerberZip(board, an, nameIn.value); saveBlob(z.blob, `${name}-gerber.zip`); toast(`Pacote da fábrica salvo: ${z.files.length} arquivos.`); }) }, h('strong', {}, 'Pacote para fábrica (Gerber + furação)'), h('span', {}, 'Um .zip para enviar à JLCPCB, PCBWay etc. Tem todas as camadas.'))));
+      drawPrev();
+    }
+    const m = modal('Imprimir ou salvar a placa', body, [h('button.btn', { onclick: () => m.close() }, 'Fechar')]);
+    rebuild();
+  }
+
+  // ---------- bobinas (espiral e estator de motor) ----------
+  const coil = { mode: 'spiral', shape: 'circle', size: 20, turns: 6, w: 0.25, space: 0.4, layers: 2, dir: 'cw', count: 6, dout: 60, din: 20, gap: 2, series: true, fit: true, hole: true, open: false };
+  const fnum = (v, d = 1) => (Number.isFinite(v) ? v.toFixed(d).replace('.', ',') : '—');
+  function coilBuild(cx, cy) {
+    const c = coil, clear = board.rules.clear, viaD = Math.max(0.6, board.rules.viaD), viaH = Math.min(board.rules.viaH, viaD - 0.3);
+    return c.mode === 'spiral'
+      ? buildSpiral({ cx, cy, shape: c.shape, size: c.size, turns: c.turns, w: c.w, space: c.space, layers: c.layers, dir: c.dir, viaD, viaH, clear })
+      : buildStator({ cx, cy, count: c.count, dout: c.dout, din: c.din, turns: c.turns, w: c.w, space: c.space, gap: c.gap, series: c.series, dir: c.dir, viaD, viaH, clear });
+  }
+  function coilInfoText(r) {
+    const i = r.info, parts = [];
+    parts.push(`${fnum(i.turns, 2)} volta${i.turns === 1 ? '' : 's'} por bobina${coil.mode === 'stator' ? ` · ${i.count} bobinas` : ''}`);
+    parts.push(`fio: ${fnum(i.lenMm / 1000, 2)} m · resistência ≈ ${fnum(i.R, 2)} Ω`);
+    if (i.L != null) parts.push(`indutância ≈ ${fnum(i.L, 1)} µH (estimativa)`);
+    parts.push(`corrente máx. ≈ ${fnum(i.Imax, 1)} A (aquecimento de 10 °C, cobre de 35 µm)`);
+    const warn = [];
+    if (i.spaceAdj) warn.push(`Espaço aumentado para ${fnum(i.space, 2)} mm para a via do centro caber.`);
+    if (i.clamped) warn.push('Voltas reduzidas: não cabem nesse tamanho.');
+    return { lines: parts, warn };
+  }
+  function generateCoil() {
+    const b = board.outlineBox(), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, r = coilBuild(cx, cy);
+    const extra = {};
+    if (coil.mode === 'stator') {
+      if (coil.fit) { const D = coil.dout + 2 * 7.2; extra.outline = outlineCircle(D, cx, cy); }
+      if (coil.hole && r.info.holeD >= 2) extra.holes = [{ x: cx, y: cy, d: Math.floor(r.info.holeD * 2) / 2 }];
+    } else {
+      const bx = r.info.box, W = bx.x1 - bx.x0, H = bx.y1 - bx.y0, ob = board.outlineBox();
+      if (board.outline.length === 4 && (W > ob.x1 - ob.x0 || H > ob.y1 - ob.y0)) { const g = (v) => Math.ceil(v / 5) * 5; extra.outline = outlineRect(g(Math.max(W, ob.x1 - ob.x0)), g(Math.max(H, ob.y1 - ob.y0)), cx - g(Math.max(W, ob.x1 - ob.x0)) / 2, cy - g(Math.max(H, ob.y1 - ob.y0)) / 2); }
+    }
+    const made = board.addCopper({ tracks: r.tracks, vias: r.vias, pads: r.pads, ...extra });
+    sel = { fps: made.fps, tracks: made.tracks, vias: made.vias }; setTool('sel'); fit(); onSelChange();
+    const { lines } = coilInfoText(r);
+    toast(`Bobina criada: ${r.tracks.length} trilhas. ${lines[1]}. Arraste para mover.`);
+  }
+  function coilSection() {
+    const c = coil, set = (k, v) => { c[k] = v; renderPanel(); };
+    const nIn = (k, min, max, step, label) => num(c[k], min, max, step, (v) => { if (Number.isFinite(v)) { c[k] = clamp(v, min, max); } renderPanel(); }, label);
+    const pr = coilBuild(0, 0), { lines, warn } = coilInfoText(pr);
+    const body = h('div', {},
+      h('div.ce-actions', {}, pill('Bobina espiral', c.mode === 'spiral', () => set('mode', 'spiral')), pill('Estator de motor', c.mode === 'stator', () => set('mode', 'stator'))),
+      ...(c.mode === 'spiral'
+        ? [h('div.flabel', {}, 'Formato'), h('div.ce-quick', {}, ...Object.entries(SHAPES).map(([k, v]) => pill(v.label, c.shape === k, () => set('shape', k)))),
+          h('div.ce-two', {}, field('Largura total (mm)', nIn('size', 4, 200, 1, 'Largura total')), field('Voltas', nIn('turns', 1, 60, 0.5, 'Voltas')))]
+        : [h('div.ce-two', {}, field('Nº de bobinas (par)', num(c.count, 2, 24, 2, (v) => { c.count = clamp(Math.round(v / 2) * 2 || 6, 2, 24); renderPanel(); }, 'Número de bobinas')), field('Voltas', nIn('turns', 1, 40, 0.5, 'Voltas'))),
+          h('div.ce-two', {}, field('Ø externo (mm)', nIn('dout', 20, 300, 1, 'Diâmetro externo')), field('Ø interno (mm)', nIn('din', 6, 250, 1, 'Diâmetro interno'))),
+          field('Folga entre bobinas (mm)', nIn('gap', 1.2, 10, 0.5, 'Folga'))]),
+      h('div.ce-two', {}, field('Trilha (mm)', nIn('w', 0.1, 2, 0.05, 'Largura da trilha')), field('Espaço (mm)', nIn('space', 0.1, 2, 0.05, 'Espaço entre voltas'))),
+      c.mode === 'spiral' ? h('div', {}, h('div.flabel', {}, 'Camadas'), h('div.ce-quick', {}, pill('1 (ponte no verso)', c.layers === 1, () => set('layers', 1)), pill('2 (frente e verso)', c.layers === 2, () => set('layers', 2)))) : null,
+      h('div.flabel', {}, 'Sentido das voltas'), h('div.ce-quick', {}, pill('Horário', c.dir === 'cw', () => set('dir', 'cw')), pill('Anti-horário', c.dir === 'ccw', () => set('dir', 'ccw'))),
+      c.mode === 'stator' ? h('div.ce-quick', {}, pill('Ligar em série (N-S-N-S)', c.series, () => set('series', !c.series)), pill('Placa redonda', c.fit, () => set('fit', !c.fit)), pill('Furo do eixo', c.hole, () => set('hole', !c.hole))) : null,
+      h('ul.ce-coilinfo', {}, ...lines.map((t) => h('li', {}, t))),
+      ...warn.map((t) => h('p.hint.warnline', {}, t)),
+      h('button.btn.primary', { type: 'button', onclick: generateCoil }, h('span.ic', { html: icon.layers2 }), 'Gerar na placa'),
+      h('p.hint', {}, c.mode === 'spiral' ? 'A bobina entra no centro da placa já selecionada: arraste para mover. Os dois pads são as pontas.' : 'Cada bobina tem 2 camadas ligadas por uma via no centro. Com “ligar em série”, os pads nas pontas são os dois terminais do conjunto. Trilhas finas aguentam pouca corrente: veja a estimativa acima.'));
+    return h('details.ce-sec.ce-coil', { open: c.open, ontoggle: (e) => { c.open = e.target.open; } }, h('summary', {}, h('h3', {}, 'Bobinas e motor em placa')), body);
   }
   function routeSection() {
     const an = analysis();

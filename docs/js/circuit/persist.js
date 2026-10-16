@@ -5,6 +5,9 @@ import { Board } from '../pcb/board.js';
 import { toCanvas } from './render.js';
 import { makeCanvas } from '../util.js';
 
+// Salva sozinho 5 min depois da última alteração (e ao sair da aba). Ctrl+S ou o botão ✓ salvam na hora.
+const AUTOSAVE_MS = 5 * 60 * 1000;
+
 export async function loadCircuit(id) {
   const m = await api.get(id);
   if (m.kind !== 'circuit') throw Object.assign(new Error('Este item não é um circuito.'), { status: 404 });
@@ -38,7 +41,7 @@ export class CircuitSaver extends EventTarget {
     window.removeEventListener('beforeunload', this.onUnload);
   }
   setStatus(s, message) { this.status = s; this.dispatchEvent(new CustomEvent('status', { detail: { status: s, message } })); }
-  touch() { this.dirty = true; this.setStatus('dirty'); this.schedule(2500); }
+  touch() { this.dirty = true; this.setStatus('dirty'); this.schedule(AUTOSAVE_MS); }
   schedule(ms) { clearTimeout(this.timer); if (!this.stopped) this.timer = setTimeout(() => this.flush(), ms); }
   thumbnail() {
     try {
@@ -64,7 +67,7 @@ export class CircuitSaver extends EventTarget {
       if (e instanceof ApiError && e.status === 409) this.setStatus('conflict', e.message);
       else if (e instanceof ApiError && e.status === 0) { this.setStatus('offline', e.message); this.schedule(5000); }
       else if (e instanceof ApiError && e.status === 401) this.setStatus('error', 'Sua sessão expirou. Entre de novo para salvar.');
-      else { this.setStatus('error', e.message); this.schedule(8000); }
+      else { this.setStatus('error', e.message); this.schedule(60000); }
     } finally {
       this.running = false;
       if (this.pending && !this.stopped) { this.pending = false; this.schedule(300); }
